@@ -62,7 +62,7 @@ processButton.addEventListener('click', async () => {
   }
   catch (error) {
     structureOutput.classList.remove('empty-state');
-    structureOutput.innerHTML = `<div class="card"><h4>Error</h4><p>${error.message}</p></div>`;
+    structureOutput.innerHTML = `<div class="card"><h4>Error</h4><p>${formatValue(error.message)}</p></div>`;
     if (!navigator.onLine) {
       showToast('You appear to be offline. Please check your internet connection.', 'error');
     } else if (error?.message) {
@@ -113,7 +113,7 @@ narrativeButton.addEventListener('click', async () => {
     renderNarrative(result);
   } catch (error) {
     narrativeOutput.classList.remove('empty-state');
-    narrativeOutput.innerHTML = `<div class="card"><h4>Error</h4><p>${error.message}</p></div>`;
+    narrativeOutput.innerHTML = `<div class="card"><h4>Error</h4><p>${formatValue(error.message)}</p></div>`;
 
     if (!navigator.onLine) {
       showToast('You appear to be offline. Please check your internet connection.', 'error');
@@ -154,7 +154,7 @@ graphButton.addEventListener('click', async () => {
     renderGraph(result);
   } catch (error) {
     graphOutput.classList.remove('empty-state');
-    graphOutput.innerHTML = `<div class="card"><h4>Error</h4><p>${error.message}</p></div>`;
+    graphOutput.innerHTML = `<div class="card"><h4>Error</h4><p>${formatValue(error.message)}</p></div>`;
   } finally {
     graphButton.disabled = !currentStructure;
     setStatus(graphStatus, 'Idle', false);
@@ -173,13 +173,16 @@ uploadInput?.addEventListener('change', async (event) => {
 
   uploadMessage.textContent = 'Extracting text...';
   uploadMessage.classList.add('loading');
+  document.getElementById('message').innerText = '';
 
   try {
     const extractedText = await extractTextFromFile(file);
     textInput.value = extractedText;
     uploadMessage.textContent = `Loaded ${file.name} (${extractedText.length.toLocaleString()} chars)`;
+    document.getElementById('message').innerText = 'File loaded and parsed successfully';
   } catch (error) {
     uploadMessage.textContent = `Could not read ${file.name}: ${error.message}`;
+    document.getElementById('message').innerText = '';
   } finally {
     uploadMessage.classList.remove('loading');
   }
@@ -191,39 +194,82 @@ clearInputButton?.addEventListener('click', () => {
   uploadMessage.textContent = '';
 });
 
-if (form) {
-  form.addEventListener('change', () => {
-    form.dispatchEvent(new Event('submit'));
-  });
+form?.addEventListener('submit', (event) => {
+  event.preventDefault();
+});
 
-  form.addEventListener('submit', async (event) => {
-    event.preventDefault();
-
-    const fileInput = document.getElementById('uploadFile');
-    const file = fileInput.files[0];
-
-    const formData = new FormData();
-    formData.append('uploadFile', file);
-
-    try {
-      const response = await fetch('/upload?forceOCR=1', {
-        method: 'POST',
-        body: formData,
-      })
-
-      const data = await response.json()
-      document.getElementById('message').innerText = data.message;
-
-      if (data.extractedText) {
-        textInput.value = data.extractedText
-      }
-
-    } catch (error) {
-      console.error('Error uploading file:', error);
-      document.getElementById('message').innerText = 'Error uploading file.';
-    }
-  });
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
+
+function formatValue(value, fallback = '') {
+  if (value === null || value === undefined || value === '') {
+    return fallback;
+  }
+
+  if (Array.isArray(value)) {
+    return formatList(value, fallback);
+  }
+
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return escapeHtml(value);
+  }
+
+  if (typeof value === 'object') {
+    const preferredKeys = [
+      'name',
+      'title',
+      'term',
+      'label',
+      'description',
+      'benefit',
+      'mechanic',
+      'questHook',
+      'text',
+      'value',
+    ];
+
+    for (const key of preferredKeys) {
+      if (value[key]) {
+        return formatValue(value[key], fallback);
+      }
+    }
+
+    const readableValues = Object.values(value)
+      .filter((item) => item !== null && item !== undefined && typeof item !== 'object')
+      .map((item) => escapeHtml(item));
+
+    return readableValues.length ? readableValues.join(' - ') : escapeHtml(JSON.stringify(value));
+  }
+
+  return escapeHtml(value);
+}
+
+function formatList(value, fallback = 'None') {
+  if (!Array.isArray(value) || value.length === 0) {
+    return fallback;
+  }
+
+  const rendered = value
+    .map((item) => formatValue(item))
+    .filter(Boolean);
+
+  return rendered.length ? rendered.join(', ') : fallback;
+}
+
+function formatPair(primary, secondary, separator = ' - ') {
+  const first = formatValue(primary);
+  const second = formatValue(secondary);
+
+  if (first && second) return `${first}${separator}${second}`;
+  return first || second;
+}
+
 function renderStructure(result) {
   const { structured, via, title } = result;
   currentStructure = structured;
@@ -238,12 +284,12 @@ function renderStructure(result) {
   let html = '';
 
   if (structured?.levels?.length) {
-    html += `<div class="badge">Source: ${title || 'Untitled'} | ${via}</div>`;
+    html += `<div class="badge">Source: ${formatValue(title, 'Untitled')} | ${formatValue(via, 'unknown')}</div>`;
     structured.levels.forEach((level) => {
       html += `
         <article class="card">
-          <h4>${level.name}</h4>
-          <p>${level.overview || ''}</p>
+          <h4>${formatValue(level.name, 'Untitled level')}</h4>
+          <p>${formatValue(level.overview)}</p>
           ${renderQuests(level.quests)}
         </article>
       `;
@@ -252,13 +298,24 @@ function renderStructure(result) {
 
   if (structured?.vocabulary?.length) {
     html += `<article class="card"><h4>Vocabulary</h4>${structured.vocabulary
-      .map((entry) => `<p><strong>${entry.term}</strong> (${entry.type}) - ${entry.description}</p>`)
+      .map(
+        (entry) =>
+          `<p><strong>${formatValue(entry.term, 'Term')}</strong> (${formatValue(entry.type, 'concept')}) - ${formatValue(
+            entry.description
+          )}</p>`
+      )
       .join('')}</article>`;
   }
 
   if (structured?.assessments?.length) {
     html += `<article class="card"><h4>Assessments</h4>${structured.assessments
-      .map((assessment) => `<p><strong>${assessment.name}</strong> | ${assessment.format} | ${assessment.success_condition}</p>`)
+      .map(
+        (assessment) =>
+          `<p><strong>${formatValue(assessment.name, 'Assessment')}</strong> | ${formatValue(
+            assessment.format,
+            'format TBD'
+          )} | ${formatValue(assessment.success_condition, 'success condition TBD')}</p>`
+      )
       .join('')}</article>`;
   }
 
@@ -276,11 +333,11 @@ function renderQuests(quests = []) {
       .map(
         (quest) => `
         <div class="card">
-          <h4>${quest.title}</h4>
-          <p>${quest.description || ''}</p>
-          <p><strong>Items:</strong> ${quest.items?.join(', ') || 'None'}</p>
-          <p><strong>Abilities:</strong> ${quest.abilities?.join(', ') || 'None'}</p>
-          <p><strong>Dependencies:</strong> ${quest.dependencies?.join(', ') || 'None'}</p>
+          <h4>${formatValue(quest.title, 'Untitled quest')}</h4>
+          <p>${formatValue(quest.description)}</p>
+          <p><strong>Items:</strong> ${formatList(quest.items)}</p>
+          <p><strong>Abilities:</strong> ${formatList(quest.abilities)}</p>
+          <p><strong>Dependencies:</strong> ${formatList(quest.dependencies)}</p>
         </div>
       `
       )
@@ -292,26 +349,35 @@ function renderQuests(quests = []) {
 function renderNarrative(result) {
   const { narrative, via } = result;
   narrativeOutput.classList.remove('empty-state');
-  let html = `<div class="badge">Narrative | ${via}</div>`;
+  let html = `<div class="badge">Narrative | ${formatValue(via, 'unknown')}</div>`;
   if (narrative?.introduction) {
-    html += `<article class="card"><h4>Overview</h4><p>${narrative.introduction}</p></article>`;
+    html += `<article class="card"><h4>Overview</h4><p>${formatValue(narrative.introduction)}</p></article>`;
   }
 
   if (narrative?.regions?.length) {
     html += `<article class="card"><h4>Regions & NPCs</h4>${narrative.regions
-      .map((region) => `<p><strong>${region.name}</strong> - ${region.npc}: ${region.questHook}</p>`)
+      .map((region) => {
+        const npcAndHook = formatPair(region.npc, region.questHook, ': ');
+        return `<p><strong>${formatValue(region.name, 'Region')}</strong>${npcAndHook ? ` - ${npcAndHook}` : ''}</p>`;
+      })
       .join('')}</article>`;
   }
 
   if (narrative?.encounters?.length) {
     html += `<article class="card"><h4>Encounters</h4>${narrative.encounters
-      .map((encounter) => `<p><strong>${encounter.name}</strong> - ${encounter.mechanic}. Reward: ${encounter.reward}</p>`)
+      .map((encounter) => {
+        const mechanic = formatValue(encounter.mechanic);
+        const reward = formatValue(encounter.reward);
+        return `<p><strong>${formatValue(encounter.name, 'Encounter')}</strong>${mechanic ? ` - ${mechanic}` : ''}${
+          reward ? `. Reward: ${reward}` : ''
+        }</p>`;
+      })
       .join('')}</article>`;
   }
 
   if (narrative?.rewards?.length) {
     html += `<article class="card"><h4>Rewards</h4>${narrative.rewards
-      .map((reward) => `<p><strong>${reward.name}</strong> - ${reward.benefit}</p>`)
+      .map((reward) => `<p><strong>${formatValue(reward.name, 'Reward')}</strong> - ${formatValue(reward.benefit)}</p>`)
       .join('')}</article>`;
   }
 
@@ -393,7 +459,7 @@ function setStatus(el, text, loading) {
 async function extractTextFromFile(file) {
   const isPdf = file.type === 'application/pdf' || file.name?.toLowerCase().endsWith('.pdf');
   if (isPdf) {
-    return extractTextFromPdf(file);
+    return uploadPdfForExtraction(file);
   }
   if (typeof file.text === 'function') {
     return file.text();
@@ -401,28 +467,31 @@ async function extractTextFromFile(file) {
   throw new Error('Unsupported file type');
 }
 
-async function extractTextFromPdf(file) {
-  if (!window.pdfjsLib) {
-    throw new Error('PDF.js failed to load');
+async function uploadPdfForExtraction(file) {
+  const formData = new FormData();
+  formData.append('uploadFile', file);
+
+  const response = await fetch('/upload?forceOCR=1', {
+    method: 'POST',
+    body: formData,
+  });
+
+  let data;
+  try {
+    data = await response.json();
+  } catch (error) {
+    throw new Error('Unexpected upload response');
   }
 
-  const workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.2.67/pdf.worker.min.js';
-  window.pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
-
-  const buffer = await file.arrayBuffer();
-  const pdf = await window.pdfjsLib.getDocument({ data: buffer }).promise;
-
-  let text = '';
-  const maxPages = Math.min(pdf.numPages, 10);
-
-  for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
-    const page = await pdf.getPage(pageNum);
-    const content = await page.getTextContent();
-    text += content.items.map((item) => item.str).join(' ') + '\n';
-    if (text.length > 20000) break;
+  if (!response.ok) {
+    throw new Error(data?.message || 'PDF upload failed');
   }
 
-  return text.trim();
+  if (!data?.extractedText) {
+    throw new Error('No text was extracted from the PDF');
+  }
+
+  return data.extractedText;
 }
 
 function showToast(message, type = 'info') {

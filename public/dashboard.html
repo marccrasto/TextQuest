@@ -15,7 +15,6 @@
 
 <body>
     <main class="dashboard-container">
-        <!-- Navigation -->
         <div class="dashboard-nav">
             <a href="/" class="back-button">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -25,36 +24,72 @@
             </a>
         </div>
 
-        <!-- Header Section -->
         <header class="dashboard-hero">
             <div class="welcome-section">
-                <svg class="drawer-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    stroke-width="2">
-                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-                </svg>
-                <h3>Vocabulary Progress</h3>
-            </div>
-            <button class="drawer-toggle" aria-label="Toggle vocabulary progress">
-                <svg class="chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    stroke-width="2">
-                    <polyline points="6 9 12 15 18 9"></polyline>
-                </svg>
-            </button>
-            </div>
-            <div class="drawer-content">
-                <div id="vocabularyProgressContent">
-                    <div class="vocab-stats">
-                        <span id="vocabCount">0 / 0</span> Words Learned
+                <h1>Welcome back, <span id="userName">Player</span></h1>
+                <div class="hero-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">Current Region</span>
+                        <span class="stat-value" id="currentRegion">Loading...</span>
                     </div>
-                    <div class="vocab-list" id="vocabList">
-                        <!-- Populated by JS -->
+                    <div class="stat-item">
+                        <span class="stat-label">Active Quest</span>
+                        <span class="stat-value" id="currentQuest">Loading...</span>
                     </div>
                 </div>
             </div>
+        </header>
+
+        <section class="drawer-container" aria-label="Learning progress">
+            <div class="drawer" data-drawer="level">
+                <div class="drawer-header">
+                    <div class="drawer-title">
+                        <svg class="drawer-icon" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2">
+                            <path d="M3 3v18h18" />
+                            <path d="M7 15l4-4 3 3 5-7" />
+                        </svg>
+                        <h3>Level Progress</h3>
+                    </div>
+                    <button class="drawer-toggle" aria-label="Toggle level progress">
+                        <svg class="chevron" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </button>
+                </div>
+                <div class="drawer-content">
+                    <div id="levelProgressContent" class="level-list"></div>
+                </div>
             </div>
 
-            <!-- Current Quest Details Drawer -->
+            <div class="drawer" data-drawer="vocabulary">
+                <div class="drawer-header">
+                    <div class="drawer-title">
+                        <svg class="drawer-icon" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2">
+                            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                        </svg>
+                        <h3>Vocabulary Progress</h3>
+                    </div>
+                    <button class="drawer-toggle" aria-label="Toggle vocabulary progress">
+                        <svg class="chevron" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </button>
+                </div>
+                <div class="drawer-content">
+                    <div id="vocabularyProgressContent">
+                        <div class="vocab-stats">
+                            <span id="vocabCount">0 / 0</span> Words Learned
+                        </div>
+                        <div class="vocab-list" id="vocabList"></div>
+                    </div>
+                </div>
+            </div>
+
             <div class="drawer" data-drawer="quest">
                 <div class="drawer-header">
                     <div class="drawer-title">
@@ -73,13 +108,10 @@
                     </button>
                 </div>
                 <div class="drawer-content">
-                    <div id="questDetailsContent" class="quest-details">
-                        <!-- Populated by JS -->
-                    </div>
+                    <div id="questDetailsContent" class="quest-details"></div>
                 </div>
             </div>
 
-            <!-- Next Assessment Drawer -->
             <div class="drawer" data-drawer="assessment">
                 <div class="drawer-header">
                     <div class="drawer-title">
@@ -98,13 +130,10 @@
                     </button>
                 </div>
                 <div class="drawer-content">
-                    <div id="assessmentContent" class="assessment-details">
-                        <!-- Populated by JS -->
-                    </div>
+                    <div id="assessmentContent" class="assessment-details"></div>
                 </div>
             </div>
 
-            <!-- Badges Earned Drawer -->
             <div class="drawer" data-drawer="badges">
                 <div class="drawer-header">
                     <div class="drawer-title">
@@ -123,14 +152,26 @@
                     </button>
                 </div>
                 <div class="drawer-content">
-                    <div id="badgesContent" class="badges-grid">
-                        <!-- Populated by JS -->
-                    </div>
+                    <div id="badgesContent" class="badges-grid"></div>
                 </div>
             </div>
-            </div>
+        </section>
 
+        <section class="action-section" aria-label="Dashboard actions">
+            <button id="playGameBtn" class="primary-button" type="button">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    style="margin-right: 0.5rem;">
+                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+                Play Surfer Mode
+            </button>
+        </section>
+
+        <section id="gameContainer" style="display: none; margin-top: 1.5rem;">
+            <iframe id="gameFrame" title="TextQuest surfer game" style="width: 100%; height: 720px; border: 0;"></iframe>
+        </section>
     </main>
+
     <script type="module" src="dashboard.js"></script>
 </body>
 
