@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quest Dependency Graph</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #1e1e1e;
+            color: #e0e0e0;
+        }
+        
+        #graph-container {
+            width: 100%;
+            height: 600px;
+            border: 1px solid #444;
+            background: #252526;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .node {
+            stroke: #61dafb;
+            stroke-width: 2px;
+            cursor: pointer;
+        }
+        
+        .node:hover {
+            stroke: #ffd700;
+            stroke-width: 3px;
+        }
+        
+        .node-label {
+            font-size: 12px;
+            text-anchor: middle;
+            pointer-events: none;
+            fill: #e0e0e0;
+            font-weight: bold;
+        }
+        
+        .link {
+            stroke: #666;
+            stroke-width: 2px;
+            fill: none;
+            marker-end: url(#arrowhead);
+        }
+        
+        .link:hover {
+            stroke: #ffd700;
+            stroke-width: 3px;
+        }
+        
+        .tooltip {
+            position: absolute;
+            padding: 10px;
+            background: #333;
+            border: 1px solid #61dafb;
+            border-radius: 4px;
+            pointer-events: none;
+            font-size: 12px;
+            max-width: 250px;
+            display: none;
+            z-index: 1000;
+        }
+        
+        .quest-info {
+            margin: 5px 0;
+        }
+        
+        .quest-info-label {
+            color: #61dafb;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>Quest Dependency Graph</h1>
+    <div id="graph-container"></div>
+    <div class="tooltip" id="tooltip"></div>
+
+    <script>
+        // Sample data from Groq.AI analysis
+        const questData = {
+            nodes: [
+                { id: "quest_1", name: "Rescue the Village", difficulty: "Easy", reward: 100 },
+                { id: "quest_2", name: "Defeat Forest Bandits", difficulty: "Medium", reward: 250 },
+                { id: "quest_3", name: "Find Ancient Artifact", difficulty: "Hard", reward: 500 },
+                { id: "quest_4", name: "Retrieve Lost Amulet", difficulty: "Medium", reward: 200 },
+                { id: "quest_5", name: "Restore Sacred Temple", difficulty: "Hard", reward: 750 }
+            ],
+            links: [
+                { source: "quest_1", target: "quest_2", type: "prerequisite" },
+                { source: "quest_2", target: "quest_3", type: "prerequisite" },
+                { source: "quest_1", target: "quest_4", type: "prerequisite" },
+                { source: "quest_4", target: "quest_5", type: "prerequisite" },
+                { source: "quest_3", target: "quest_5", type: "prerequisite" }
+            ]
+        };
+
+        // Set dimensions
+        const width = document.getElementById('graph-container').clientWidth;
+        const height = document.getElementById('graph-container').clientHeight;
+
+        // Create SVG
+        const svg = d3.select('#graph-container')
+            .append('svg')
+            .attr('width', width)
+            .attr('height', height);
+
+        // Add arrow marker for directed edges
+        svg.append('defs').append('marker')
+            .attr('id', 'arrowhead')
+            .attr('markerWidth', 10)
+            .attr('markerHeight', 10)
+            .attr('refX', 9)
+            .attr('refY', 3)
+            .attr('orient', 'auto')
+            .append('polygon')
+            .attr('points', '0 0, 10 3, 0 6')
+            .attr('fill', '#666');
+
+        // Create force simulation
+        const simulation = d3.forceSimulation(questData.nodes)
+            .force('link', d3.forceLink(questData.links)
+                .id(d => d.id)
+                .distance(100))
+            .force('charge', d3.forceManyBody().strength(-300))
+            .force('center', d3.forceCenter(width / 2, height / 2))
+            .force('collision', d3.forceCollide().radius(40));
+
+        // Create links
+        const links = svg.append('g')
+            .selectAll('line')
+            .data(questData.links)
+            .enter()
+            .append('line')
+            .attr('class', 'link');
+
+        // Create nodes
+        const nodes = svg.append('g')
+            .selectAll('circle')
+            .data(questData.nodes)
+            .enter()
+            .append('circle')
+            .attr('class', 'node')
+            .attr('r', 25)
+            .attr('fill', d => {
+                const difficultyColors = {
+                    'Easy': '#4CAF50',
+                    'Medium': '#FFC107',
+                    'Hard': '#F44336'
+                };
+                return difficultyColors[d.difficulty] || '#2196F3';
+            })
+            .call(d3.drag()
+                .on('start', dragStarted)
+                .on('drag', dragged)
+                .on('end', dragEnded));
+
+        // Create labels
+        const labels = svg.append('g')
+            .selectAll('text')
+            .data(questData.nodes)
+            .enter()
+            .append('text')
+            .attr('class', 'node-label')
+            .text(d => d.id.replace('quest_', 'Q'));
+
+        // Tooltip interaction
+        const tooltip = d3.select('#tooltip');
+
+        nodes.on('mouseenter', function(event, d) {
+            tooltip.style('display', 'block')
+                .html(`
+                    <div class="quest-info">
+                        <div class="quest-info-label">Quest: ${d.name}</div>
+                        <div>Difficulty: ${d.difficulty}</div>
+                        <div>Reward: ${d.reward} XP</div>
+                    </div>
+                `)
+                .style('left', (event.pageX + 10) + 'px')
+                .style('top', (event.pageY - 10) + 'px');
+        })
+        .on('mousemove', function(event) {
+            tooltip.style('left', (event.pageX + 10) + 'px')
+                .style('top', (event.pageY - 10) + 'px');
+        })
+        .on('mouseleave', function() {
+            tooltip.style('display', 'none');
+        });
+
+        // Drag functions
+        function dragStarted(event, d) {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+        }
+
+        function dragged(event, d) {
+            d.fx = event.x;
+            d.fy = event.y;
+        }
+
+        function dragEnded(event, d) {
+            if (!event.active) simulation.alphaTarget(0);
+            d.fx = null;
+            d.fy = null;
+        }
+
+        // Update positions on simulation tick
+        simulation.on('tick', () => {
+            links
+                .attr('x1', d => d.source.x)
+                .attr('y1', d => d.source.y)
+                .attr('x2', d => d.target.x)
+                .attr('y2', d => d.target.y);
+
+            nodes
+                .attr('cx', d => d.x)
+                .attr('cy', d => d.y);
+
+            labels
+                .attr('x', d => d.x)
+                .attr('y', d => d.y + 5);
+        });
+    </script>
+</body>
+</html>

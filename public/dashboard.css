@@ -1,0 +1,513 @@
+
+/* Dashboard-specific styles */
+.dashboard-container {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem 4rem;
+}
+
+/* Navigation */
+.dashboard-nav {
+    margin-bottom: 1.5rem;
+}
+
+.back-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.95rem;
+    transition: all 0.2s ease;
+}
+
+.back-button:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: var(--accent);
+    color: #fff;
+    transform: translateX(-2px);
+}
+
+.back-button svg {
+    transition: transform 0.2s ease;
+}
+
+.back-button:hover svg {
+    transform: translateX(-3px);
+}
+
+.dashboard-hero {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 2rem;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
+}
+
+.welcome-section h1 {
+    font-size: 2rem;
+    margin: 0 0 1rem 0;
+}
+
+.welcome-section h1 span {
+    color: var(--accent);
+}
+
+.hero-stats {
+    display: flex;
+    gap: 2rem;
+    flex-wrap: wrap;
+}
+
+.stat-item {
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+}
+
+.stat-label {
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+
+.stat-value {
+    color: #fff;
+    font-weight: 600;
+}
+
+/* Drawer Container */
+.drawer-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+/* Individual Drawer */
+.drawer {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+    transition: all 0.3s ease;
+}
+
+.drawer:hover {
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+/* Drawer Header */
+.drawer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.25rem 1.5rem;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.2s ease;
+}
+
+.drawer-header:hover {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.drawer-title {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.drawer-title h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.drawer-icon {
+    color: var(--accent);
+    flex-shrink: 0;
+}
+
+.drawer-toggle {
+    background: transparent;
+    border: none;
+    padding: 0.5rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    transition: transform 0.3s ease, color 0.2s ease;
+}
+
+.drawer-toggle:hover {
+    color: #fff;
+}
+
+.drawer.collapsed .drawer-toggle .chevron {
+    transform: rotate(-90deg);
+}
+
+.drawer:not(.collapsed) .drawer-toggle .chevron {
+    transform: rotate(0deg);
+}
+
+/* Drawer Content */
+.drawer-content {
+    max-height: 1000px;
+    overflow: hidden;
+    transition: max-height 0.4s ease, opacity 0.3s ease, padding 0.3s ease;
+    padding: 0 1.5rem 1.5rem 1.5rem;
+    opacity: 1;
+}
+
+.drawer.collapsed .drawer-content {
+    max-height: 0;
+    padding: 0 1.5rem;
+    opacity: 0;
+}
+
+/* Level Progress */
+.level-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.level-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem;
+    background: rgba(0, 0, 0, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    transition: all 0.2s ease;
+}
+
+.level-item:hover {
+    background: rgba(0, 0, 0, 0.25);
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+.level-icon {
+    font-size: 1.5rem;
+    flex-shrink: 0;
+}
+
+.level-info {
+    flex: 1;
+}
+
+.level-name {
+    font-weight: 600;
+    margin: 0 0 0.25rem 0;
+}
+
+.level-quests {
+    font-size: 0.85rem;
+    color: var(--muted);
+}
+
+.level-status {
+    padding: 0.25rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.level-status.completed {
+    background: rgba(34, 197, 94, 0.2);
+    color: #86efac;
+    border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.level-status.active {
+    background: var(--accent-soft);
+    color: #a78bfa;
+    border: 1px solid rgba(124, 93, 255, 0.3);
+}
+
+.level-status.locked {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--muted);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Vocabulary Progress */
+.vocab-stats {
+    font-size: 1.1rem;
+    margin-bottom: 1rem;
+    color: var(--muted);
+}
+
+.vocab-stats span {
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 1.3rem;
+}
+
+.vocab-review-btn {
+    width: 100%;
+    margin-bottom: 1.5rem;
+}
+
+.vocab-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.vocab-item {
+    padding: 0.75rem 1rem;
+    background: rgba(0, 0, 0, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+}
+
+.vocab-item.learned {
+    border-color: rgba(34, 197, 94, 0.3);
+    background: rgba(34, 197, 94, 0.05);
+}
+
+.vocab-term {
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.vocab-type {
+    font-size: 0.75rem;
+    padding: 0.15rem 0.5rem;
+    background: var(--accent-soft);
+    border-radius: 999px;
+    color: var(--accent);
+}
+
+.vocab-description {
+    font-size: 0.85rem;
+    color: var(--muted);
+    line-height: 1.4;
+}
+
+/* Quest Details */
+.quest-details {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.quest-title {
+    font-size: 1.2rem;
+    font-weight: 600;
+    margin: 0 0 0.5rem 0;
+    color: var(--accent);
+}
+
+.quest-description {
+    color: var(--muted);
+    margin-bottom: 1rem;
+}
+
+.quest-section {
+    padding: 1rem;
+    background: rgba(0, 0, 0, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+}
+
+.quest-section h4 {
+    margin: 0 0 0.75rem 0;
+    font-size: 0.9rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.quest-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.quest-list li {
+    padding-left: 1.5rem;
+    position: relative;
+    color: #fff;
+}
+
+.quest-list li::before {
+    content: "•";
+    position: absolute;
+    left: 0.5rem;
+    color: var(--accent);
+}
+
+/* Assessment Details */
+.assessment-details {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.assessment-info {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+}
+
+.assessment-field {
+    padding: 1rem;
+    background: rgba(0, 0, 0, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+}
+
+.assessment-field label {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-bottom: 0.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.assessment-field .value {
+    font-weight: 600;
+    color: #fff;
+}
+
+.assessment-progress {
+    padding: 1rem;
+    background: rgba(0, 0, 0, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+}
+
+.assessment-progress label {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-bottom: 0.75rem;
+}
+
+.progress-bar {
+    width: 100%;
+    height: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), #31c2ff);
+    border-radius: 999px;
+    transition: width 0.5s ease;
+}
+
+/* Badges Grid */
+.badges-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 1rem;
+}
+
+.badge-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 1rem;
+    background: rgba(0, 0, 0, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    transition: all 0.2s ease;
+}
+
+.badge-item:hover {
+    background: rgba(0, 0, 0, 0.25);
+    border-color: var(--accent);
+    transform: translateY(-2px);
+}
+
+.badge-icon {
+    font-size: 2.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.badge-name {
+    font-weight: 600;
+    font-size: 0.9rem;
+    margin-bottom: 0.25rem;
+}
+
+.badge-benefit {
+    font-size: 0.75rem;
+    color: var(--muted);
+}
+
+.no-badges {
+    text-align: center;
+    padding: 2rem;
+    color: var(--muted);
+}
+
+.no-content {
+    text-align: center;
+    padding: 1.5rem;
+    color: var(--muted);
+}
+
+/* Action Section */
+.action-section {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.action-section button {
+    flex: 1;
+    min-width: 200px;
+}
+
+/* Responsive Design */
+@media (max-width: 640px) {
+    .dashboard-hero {
+        padding: 1.5rem;
+    }
+    
+    .welcome-section h1 {
+        font-size: 1.5rem;
+    }
+    
+    .hero-stats {
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+    
+    .drawer-header {
+        padding: 1rem;
+    }
+    
+    .drawer-content {
+        padding: 0 1rem 1rem 1rem;
+    }
+    
+    .badges-grid {
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    }
+    
+
+}

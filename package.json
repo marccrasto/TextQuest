@@ -1,0 +1,22 @@
+{
+  "name": "wds_rpg",
+  "version": "1.0.0",
+  "description": "Super lightweight TextQuest MVP web app",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "fs": "^0.0.1-security",
+    "multer": "^2.0.2",
+    "node-fetch": "^3.3.2",
+    "pdf-parse": "^1.1.1",
+    "pdf-poppler": "^0.2.3"
+  }
+}

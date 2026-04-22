@@ -1,0 +1,20 @@
+# Environment
+.env
+
+# Generated data
+data/
+uploads/
+output/
+
+# Dependencies
+node_modules/
+npm-debug.log
+package-lock.backup*
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+
+#ocr_env
+ocr_env/

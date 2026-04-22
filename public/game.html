@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TextQuest Surfer</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="game.css">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div class="game-container">
+        <canvas id="gameCanvas"></canvas>
+
+        <div class="ui-overlay">
+            <div class="score-board">
+                <div class="score">Score: <span id="scoreValue">0</span></div>
+                <div class="multiplier">x<span id="multiplierValue">1</span></div>
+            </div>
+
+            <div class="quest-info">
+                <h3>Current Objective</h3>
+                <p id="currentObjective">Loading...</p>
+            </div>
+
+            <div id="gameOverScreen" class="game-over hidden">
+                <h2>Game Over</h2>
+                <p>Final Score: <span id="finalScore">0</span></p>
+                <button id="restartButton" class="primary-button">Try Again</button>
+                <a href="/dashboard" class="secondary-button">Back to Dashboard</a>
+            </div>
+
+            <div id="startScreen" class="start-screen">
+                <h1>TextQuest Surfer</h1>
+                <p>Use Arrow Keys to Move</p>
+                <p>Collect <span class="highlight">Knowledge</span> | Avoid <span
+                        class="highlight">Misconceptions</span></p>
+                <button id="startButton" class="primary-button">Start Run</button>
+                <a href="/dashboard" class="secondary-button">Back to Dashboard</a>
+            </div>
+        </div>
+    </div>
+    <script type="module" src="game.js"></script>
+</body>
+
+</html>

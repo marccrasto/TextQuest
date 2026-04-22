@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Quest Dependency Graph</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0f1115;
+        --panel: #161922;
+        --text: #e6e8ef;
+        --muted: #9aa3b5;
+        --accent: #61dafb;
+        --accent-2: #8ef6b4;
+      }
+
+      body {
+        font-family: 'Space Grotesk', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        margin: 0;
+        padding: 24px;
+        background: radial-gradient(circle at 20% 20%, #1b1f2a, #0f1115 40%);
+        color: var(--text);
+      }
+
+      h1 {
+        margin: 0 0 4px;
+      }
+
+      p {
+        margin: 4px 0 12px;
+        color: var(--muted);
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid #1f2533;
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 16px;
+        box-shadow: 0 10px 35px rgba(0, 0, 0, 0.35);
+      }
+
+      #graph-container {
+        width: 100%;
+        height: 640px;
+        border: 1px solid #1f2533;
+        background: #0f1115;
+        border-radius: 12px;
+        overflow: hidden;
+      }
+
+      .node {
+        stroke: var(--bg);
+        stroke-width: 2px;
+        cursor: grab;
+      }
+
+      .node-label {
+        font-size: 12px;
+        text-anchor: middle;
+        pointer-events: none;
+        fill: var(--text);
+        font-weight: 600;
+      }
+
+      .link {
+        stroke: #3b4458;
+        stroke-width: 2px;
+        fill: none;
+        marker-end: url(#arrowhead);
+      }
+
+      .tooltip {
+        position: absolute;
+        padding: 10px 12px;
+        background: #0e111a;
+        border: 1px solid var(--accent);
+        border-radius: 8px;
+        pointer-events: none;
+        font-size: 12px;
+        max-width: 260px;
+        display: none;
+        z-index: 10;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        background: rgba(97, 218, 251, 0.12);
+        border: 1px solid rgba(97, 218, 251, 0.4);
+        color: #d9f6ff;
+        border-radius: 999px;
+        font-size: 12px;
+        letter-spacing: 0.01em;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="panel">
+      <div class="badge">Quest dependencies</div>
+      <h1 id="graph-title">Quest Graph</h1>
+      <p id="graph-subtitle">Visualize prerequisites across your TextQuest blueprint.</p>
+      <a href="index.html" style="color: var(--accent)">Back to app</a>
+    </div>
+
+    <div id="graph-container" class="panel"></div>
+    <div class="tooltip" id="tooltip"></div>
+
+    <script>
+      const stored = localStorage.getItem('textquest_structure');
+      const parsed = stored ? safeParse(stored) : null;
+      const questData = parsed ? buildQuestGraphFromStructure(parsed) : getSampleGraph();
+
+      document.getElementById('graph-title').textContent = parsed ? 'Quest Graph (latest blueprint)' : 'Quest Graph (sample)';
+      document.getElementById('graph-subtitle').textContent = parsed
+        ? 'Using your most recent generated structure. Edges point from prerequisite to dependent quest.'
+        : 'No generated blueprint found, so we are showing a sample.';
+
+      renderQuestGraph(questData);
+
+      function renderQuestGraph(data) {
+        const width = document.getElementById('graph-container').clientWidth;
+        const height = document.getElementById('graph-container').clientHeight;
+
+        const svg = d3
+          .select('#graph-container')
+          .append('svg')
+          .attr('width', width)
+          .attr('height', height);
+
+        svg
+          .append('defs')
+          .append('marker')
+          .attr('id', 'arrowhead')
+          .attr('markerWidth', 10)
+          .attr('markerHeight', 10)
+          .attr('refX', 9)
+          .attr('refY', 3)
+          .attr('orient', 'auto')
+          .append('polygon')
+          .attr('points', '0 0, 10 3, 0 6')
+          .attr('fill', '#3b4458');
+
+        const simulation = d3
+          .forceSimulation(data.nodes)
+          .force('link', d3.forceLink(data.links).id((d) => d.id).distance(120))
+          .force('charge', d3.forceManyBody().strength(-400))
+          .force('center', d3.forceCenter(width / 2, height / 2))
+          .force('collision', d3.forceCollide().radius(40));
+
+        const links = svg.append('g').selectAll('line').data(data.links).enter().append('line').attr('class', 'link');
+
+        const drag = d3
+          .drag()
+          .on('start', dragStarted)
+          .on('drag', dragged)
+          .on('end', dragEnded);
+
+        const nodes = svg
+          .append('g')
+          .selectAll('circle')
+          .data(data.nodes)
+          .enter()
+          .append('circle')
+          .attr('class', 'node')
+          .attr('r', 26)
+          .attr('fill', (d) => {
+            const palette = {
+              easy: '#8ef6b4',
+              medium: '#61dafb',
+              hard: '#ffad61',
+            };
+            return palette[d.difficulty] || '#61dafb';
+          })
+          .call(drag);
+
+        const labels = svg
+          .append('g')
+          .selectAll('text')
+          .data(data.nodes)
+          .enter()
+          .append('text')
+          .attr('class', 'node-label')
+          .text((d) => d.name);
+
+        const tooltip = d3.select('#tooltip');
+
+        nodes
+          .on('mouseenter', function (event, d) {
+            tooltip
+              .style('display', 'block')
+              .html(
+                `
+                <div><strong>${d.fullTitle}</strong></div>
+                <div>${d.level || 'Quest'}</div>
+                <div>Difficulty: ${d.difficultyLabel}</div>
+                <div>Reward signals: ${d.reward}</div>
+              `
+              )
+              .style('left', event.pageX + 10 + 'px')
+              .style('top', event.pageY - 10 + 'px');
+          })
+          .on('mousemove', function (event) {
+            tooltip.style('left', event.pageX + 10 + 'px').style('top', event.pageY - 10 + 'px');
+          })
+          .on('mouseleave', function () {
+            tooltip.style('display', 'none');
+          });
+
+        simulation.on('tick', () => {
+          links
+            .attr('x1', (d) => d.source.x)
+            .attr('y1', (d) => d.source.y)
+            .attr('x2', (d) => d.target.x)
+            .attr('y2', (d) => d.target.y);
+
+          nodes.attr('cx', (d) => d.x).attr('cy', (d) => d.y);
+          labels.attr('x', (d) => d.x).attr('y', (d) => d.y + 4);
+        });
+
+        function dragStarted(event) {
+          if (!event.active) simulation.alphaTarget(0.3).restart();
+          event.subject.fx = event.subject.x;
+          event.subject.fy = event.subject.y;
+        }
+
+        function dragged(event) {
+          event.subject.fx = event.x;
+          event.subject.fy = event.y;
+        }
+
+        function dragEnded(event) {
+          if (!event.active) simulation.alphaTarget(0);
+          event.subject.fx = null;
+          event.subject.fy = null;
+        }
+      }
+
+      function buildQuestGraphFromStructure(structure) {
+        const nodes = [];
+        const links = [];
+        const nameToId = new Map();
+        let counter = 1;
+
+        (structure.levels || []).forEach((level) => {
+          (level.quests || []).forEach((quest) => {
+            const id = `quest_${counter++}`;
+            const dependencyCount = quest.dependencies?.length || 0;
+            const difficulty = dependencyCount >= 2 ? 'hard' : dependencyCount === 1 ? 'medium' : 'easy';
+
+            nodes.push({
+              id,
+              name: `Q${counter - 1}`,
+              fullTitle: quest.title || `Quest ${counter - 1}`,
+              difficulty,
+              difficultyLabel: difficultyLabel(difficulty),
+              reward: (quest.items?.length || 0) + (quest.abilities?.length || 0),
+              level: level.name,
+              dependencies: quest.dependencies || [],
+            });
+
+            if (quest.title) {
+              nameToId.set(quest.title.toLowerCase(), id);
+            }
+          });
+        });
+
+        nodes.forEach((node) => {
+          node.dependencies.forEach((dep) => {
+            const targetId = nameToId.get(dep.toLowerCase());
+            if (targetId) {
+              links.push({ source: targetId, target: node.id, type: 'prerequisite' });
+            }
+          });
+        });
+
+        return { nodes, links };
+      }
+
+      function difficultyLabel(difficulty) {
+        return difficulty === 'hard' ? 'Hard' : difficulty === 'medium' ? 'Medium' : 'Easy';
+      }
+
+      function getSampleGraph() {
+        return {
+          nodes: [
+            { id: 'quest_1', name: 'Q1', fullTitle: 'Rescue the Village', difficulty: 'easy', difficultyLabel: 'Easy', reward: 2 },
+            { id: 'quest_2', name: 'Q2', fullTitle: 'Defeat Forest Bandits', difficulty: 'medium', difficultyLabel: 'Medium', reward: 3 },
+            { id: 'quest_3', name: 'Q3', fullTitle: 'Find Ancient Artifact', difficulty: 'hard', difficultyLabel: 'Hard', reward: 4 },
+            { id: 'quest_4', name: 'Q4', fullTitle: 'Retrieve Lost Amulet', difficulty: 'medium', difficultyLabel: 'Medium', reward: 2 },
+            { id: 'quest_5', name: 'Q5', fullTitle: 'Restore Sacred Temple', difficulty: 'hard', difficultyLabel: 'Hard', reward: 4 },
+          ],
+          links: [
+            { source: 'quest_1', target: 'quest_2', type: 'prerequisite' },
+            { source: 'quest_2', target: 'quest_3', type: 'prerequisite' },
+            { source: 'quest_1', target: 'quest_4', type: 'prerequisite' },
+            { source: 'quest_4', target: 'quest_5', type: 'prerequisite' },
+            { source: 'quest_3', target: 'quest_5', type: 'prerequisite' },
+          ],
+        };
+      }
+
+      function safeParse(text) {
+        try {
+          return JSON.parse(text);
+        } catch (error) {
+          return null;
+        }
+      }
+    </script>
+  </body>
+</html>
