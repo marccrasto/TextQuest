@@ -237,51 +237,9 @@ function setInitialDrawerStates() {
     });
 }
 
-// ----------------- Game Toggle Logic -----------------
-function setupGameToggle() {
-    const btn = document.getElementById('playGameBtn');
-    const container = document.getElementById('gameContainer');
-    const frame = document.getElementById('gameFrame');
-
-    if (btn && container && frame) {
-        btn.addEventListener('click', () => {
-            if (container.style.display === 'none') {
-                container.style.display = 'block';
-                // Only load the game if it hasn't been loaded yet
-                if (!frame.src) {
-                    frame.src = '/game.html';
-                }
-                btn.innerHTML = `
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 0.5rem;">
-                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                    </svg>
-                    Close Game
-                `;
-                // Scroll to game
-                container.scrollIntoView({ behavior: 'smooth' });
-            } else {
-                container.style.display = 'none';
-                btn.innerHTML = `
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 0.5rem;">
-                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
-                    </svg>
-                    Play Surfer Mode
-                `;
-                // Stop the game by clearing src? Or just hide?
-                // If we clear src, it resets state. If we hide, it pauses?
-                // For performance, maybe better to keep it?
-                // But if user wants to restart?
-                // Let's keep it.
-            }
-        });
-    }
-}
-
 export { initializeDashboard, currentUser };
 
 document.addEventListener('DOMContentLoaded', () => {
     initializeDashboard();
     setupDrawerToggles();
-    setupGameToggle();
 });
