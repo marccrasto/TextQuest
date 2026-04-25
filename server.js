@@ -295,75 +295,152 @@ app.get('/dashboard', (req, res) => {
   }
 });
 
-app.post('/api/process', async (req, res) => {
-  const { text, title = 'Untitled Textbook', focus = 'biology' } = req.body ?? {};
-  if (!text || !text.trim()) {
-    return res.status(400).json({ error: 'Text is required' });
+app.post('/api/worlds/generate', requireAuth, async (req, res) => {
+  const input = validateGenerationInput(req.body ?? {});
+  if (input.error) {
+    return res.status(input.status).json(input.body);
   }
-
-  if (text.length > activeFeatures.maxInputChars) {
-    return res.status(413).json({
-      error: `Text is too long for ${APP_MODE} mode. Please keep it under ${activeFeatures.maxInputChars.toLocaleString()} characters.`,
-      code: 'INPUT_TOO_LARGE',
-      maxInputChars: activeFeatures.maxInputChars,
-    });
-  }
-
-  const bookExcerpt = text.trim().slice(0, 5000);
-  const messages = [
-    {
-      role: 'system',
-      content:
-        'You are TextQuest, an AI narrative designer that turns textbooks into lightweight RPG blueprints. Respond ONLY with valid JSON including levels, quests, vocabulary, and suggested assessments.',
-    },
-    {
-      role: 'user',
-      content: `Source textbook: ${title}\nFocus topic: ${focus}\nBuild an RPG-friendly JSON with:\n- levels: [{name, overview, quests[]}]\n- quests: {title, description, items, abilities, dependencies}\n- vocabulary: [{term, type, description}]\n- assessments: [{name, format, success_condition}]\nBase it on this excerpt:\n"""${bookExcerpt}"""`,
-    },
-  ];
 
   try {
-    const { content, usage } = await callGroq(messages, { responseFormat: 'json_object', retry: { maxRetries: 3 } });
+    const generation = await generateStructurePayload(input.payload);
+    const saved = await saveGeneratedWorld({
+      userId: req.currentUser.id,
+      title: input.payload.title,
+      focus: input.payload.focus,
+      text: input.payload.text,
+      structured: generation.structured,
+      via: generation.via,
+      usage: generation.usage,
+      warnings: generation.warnings,
+    });
 
-    const structured = safeJSON(content);
-    const responsePayload = { title, structured: structured ?? { raw: content }, usage, via: 'groq' };
-
-    if (!structured) { responsePayload.warnings = ['GROQ_PARSE_ERROR']; }
-
-    return res.json(responsePayload);
+    return res.status(201).json({
+      saved: true,
+      title: input.payload.title,
+      via: generation.via,
+      usage: generation.usage,
+      warnings: generation.warnings,
+      structured: generation.structured,
+      world: formatWorldSummary(saved.world),
+      character: saved.character
+        ? {
+          id: saved.character.id,
+          name: saved.character.name,
+          className: saved.character.className,
+          level: saved.character.level,
+          xp: saved.character.xp,
+          currentQuestId: saved.character.currentQuestId,
+        }
+        : null,
+    });
+  } catch (error) {
+    return handleGenerationError(res, 'worlds.generate', error, 'Failed to save RPG world');
   }
-  catch (error) {
-    if (isMissingKeyError(error)) {
-      return res.json({ title, structured: sampleStructure, via: 'mock', message: 'Set GROQ_API_KEY to replace mock data.' });
+});
+
+app.get('/api/worlds', requireAuth, async (req, res) => {
+  try {
+    const worlds = await prisma.rpgWorld.findMany({
+      where: { userId: req.currentUser.id },
+      orderBy: { updatedAt: 'desc' },
+      include: worldIncludeForUser(req.currentUser.id),
+    });
+
+    return res.json({
+      worlds: worlds.map((world) => formatWorldSummary(world)),
+    });
+  } catch (error) {
+    console.error('[worlds.list] Failed', error);
+    return res.status(500).json({ error: 'Failed to load saved RPG worlds.' });
+  }
+});
+
+app.get('/api/worlds/:worldId', requireAuth, async (req, res) => {
+  try {
+    const world = await prisma.rpgWorld.findFirst({
+      where: {
+        id: req.params.worldId,
+        userId: req.currentUser.id,
+      },
+      include: worldIncludeForUser(req.currentUser.id),
+    });
+
+    if (!world) {
+      return res.status(404).json({ error: 'RPG world not found.' });
     }
 
-    if (error instanceof GroqError) {
-      console.error('[process] GroqError', { type: error.type, status: error.status });
+    return res.json({
+      world: formatWorldDetail(world),
+    });
+  } catch (error) {
+    console.error('[worlds.detail] Failed', error);
+    return res.status(500).json({ error: 'Failed to load RPG world details.' });
+  }
+});
 
-      if (error.type === 'RATE_LIMIT' || error.status === 429) {
-        return res.status(503).json({
-          error: 'TextQuest is temporarily rate limited by the AI provider. Please wait a moment and try again.',
-          code: 'GROQ_RATE_LIMIT',
-          status: error.status,
-        });
-      }
+app.post('/api/worlds/:worldId/narrative', requireAuth, async (req, res) => {
+  const learningGoal = normalizeTextField(
+    req.body?.learningGoal,
+    'Keep the player curious about the topic.'
+  );
 
-      if (error.type === 'PARSE_ERROR') {
-        return res.status(502).json({
-          error: 'We had trouble understanding the AI response. Please try again.',
-          code: 'GROQ_PARSE_ERROR',
-          status: error.status,
-        });
-      }
+  try {
+    const world = await prisma.rpgWorld.findFirst({
+      where: {
+        id: req.params.worldId,
+        userId: req.currentUser.id,
+      },
+      include: worldIncludeForUser(req.currentUser.id),
+    });
 
-      return res.status(502).json({
-        error: 'The AI service is currently unavailable. Please try again.',
-        code: 'GROQ_UPSTREAM_ERROR',
-        status: error.status,
-      });
+    if (!world) {
+      return res.status(404).json({ error: 'RPG world not found.' });
     }
-    console.error('[process] Failed', error);
-    return res.status(500).json({ error: 'Failed to build RPG structure', code: 'UNKNOWN_SERVER_ERROR' });
+
+    const structured = world.generatedJson?.structured ?? world.generatedJson;
+    if (!structured) {
+      return res.status(400).json({ error: 'This RPG world does not have a saved blueprint yet.' });
+    }
+
+    const narrativePayload = await generateNarrativePayload({
+      structured,
+      learningGoal,
+    });
+
+    await prisma.rpgWorld.update({
+      where: { id: world.id },
+      data: {
+        narrativeJson: {
+          narrative: narrativePayload.narrative,
+          via: narrativePayload.via,
+          usage: narrativePayload.usage ?? null,
+          warnings: narrativePayload.warnings ?? [],
+          learningGoal,
+        },
+      },
+    });
+
+    return res.json({
+      saved: true,
+      learningGoal,
+      ...narrativePayload,
+    });
+  } catch (error) {
+    return handleNarrativeError(res, 'worlds.narrative', error);
+  }
+});
+
+app.post('/api/process', async (req, res) => {
+  const input = validateGenerationInput(req.body ?? {});
+  if (input.error) {
+    return res.status(input.status).json(input.body);
+  }
+
+  try {
+    const responsePayload = await generateStructurePayload(input.payload);
+    return res.json(responsePayload);
+  } catch (error) {
+    return handleGenerationError(res, 'process', error, 'Failed to build RPG structure');
   }
 });
 
@@ -373,70 +450,11 @@ app.post('/api/narrative', async (req, res) => {
     return res.status(400).json({ error: 'Structured RPG data is required' });
   }
 
-  const trimmedStructure = JSON.stringify(structured).slice(0, 8000);
-  const messages = [
-    {
-      role: 'system',
-      content:
-        'You are an imaginative yet accurate RPG writer. Given structured learning data, write concise lore, NPC hooks, and encounter ideas that reinforce the knowledge.',
-    },
-    {
-      role: 'user',
-      content: `Structured data:\n${trimmedStructure}\nLearning goal: ${learningGoal}\nReturn JSON with introduction, regions (name, npc, questHook), encounters (name, mechanic, reward), and rewards (name, benefit).`,
-    },
-  ];
-
   try {
-    const { content, usage } = await callGroq(messages, { responseFormat: 'json_object', retry: { maxRetries: 3 } });
-    const narrative = safeJSON(content);
-    const responsePayload = { narrative: narrative ?? { raw: content }, usage, via: 'groq' };
-
-    if (!narrative) {
-      responsePayload.warnings = ['GROQ_PARSE_ERROR'];
-    }
-
+    const responsePayload = await generateNarrativePayload({ structured, learningGoal });
     return res.json(responsePayload);
-  }
-  catch (error) {
-    if (isMissingKeyError(error)) {
-      return res.json({
-        narrative: sampleNarrative,
-        via: 'mock',
-        message: 'Set GROQ_API_KEY to replace mock data.',
-      });
-    }
-
-    if (error instanceof GroqError) {
-      console.error(
-        '[narrative] GroqError',
-        { type: error.type, status: error.status }
-      );
-
-      if (error.type === 'RATE_LIMIT' || error.status === 429) {
-        return res.status(503).json({
-          error: 'Narrative generation is temporarily rate limited. Please wait a moment and try again.',
-          code: 'GROQ_RATE_LIMIT',
-          status: error.status,
-        });
-      }
-
-      if (error.type === 'PARSE_ERROR') {
-        return res.status(502).json({
-          error: 'We had trouble understanding the AI response for narrative. Please try again.',
-          code: 'GROQ_PARSE_ERROR',
-          status: error.status,
-        });
-      }
-
-      return res.status(502).json({
-        error: 'The AI narrative service is currently unavailable. Please try again.',
-        code: 'GROQ_UPSTREAM_ERROR',
-        status: error.status,
-      });
-    }
-
-    console.error('[narrative] Failed', error);
-    return res.status(500).json({ error: 'Failed to craft narrative content', code: 'UNKNOWN_SERVER_ERROR' });
+  } catch (error) {
+    return handleNarrativeError(res, 'narrative', error);
   }
 });
 
@@ -843,10 +861,29 @@ function normalizeEmail(email) {
   return typeof email === 'string' ? email.trim().toLowerCase() : '';
 }
 
+function normalizeTextField(value, fallback = '') {
+  if (typeof value !== 'string') {
+    return fallback;
+  }
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, 160) : fallback;
+}
+
 function normalizeDisplayName(displayName) {
   if (typeof displayName !== 'string') return null;
   const trimmed = displayName.trim();
   return trimmed ? trimmed.slice(0, 80) : null;
+}
+
+function valueOrNull(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function arrayOrEmpty(value) {
+  return Array.isArray(value) ? value.filter((entry) => entry !== null && entry !== undefined && entry !== '') : [];
 }
 
 function sanitizeUser(user) {
@@ -935,6 +972,570 @@ function blockLocalOnlyStatic(req, res, next) {
 
 
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
+function validateGenerationInput(body) {
+  const title = normalizeTextField(body.title, 'Untitled Textbook');
+  const focus = normalizeTextField(body.focus, 'general');
+  const text = typeof body.text === 'string' ? body.text.trim() : '';
+
+  if (!text) {
+    return {
+      error: true,
+      status: 400,
+      body: { error: 'Text is required' },
+    };
+  }
+
+  if (text.length > activeFeatures.maxInputChars) {
+    return {
+      error: true,
+      status: 413,
+      body: {
+        error: `Text is too long for ${APP_MODE} mode. Please keep it under ${activeFeatures.maxInputChars.toLocaleString()} characters.`,
+        code: 'INPUT_TOO_LARGE',
+        maxInputChars: activeFeatures.maxInputChars,
+      },
+    };
+  }
+
+  return {
+    error: false,
+    payload: { title, focus, text },
+  };
+}
+
+async function generateStructurePayload({ title, focus, text }) {
+  const bookExcerpt = text.trim().slice(0, 5000);
+  const messages = [
+    {
+      role: 'system',
+      content:
+        'You are TextQuest, an AI narrative designer that turns textbooks into lightweight RPG blueprints. Respond ONLY with valid JSON including levels, quests, vocabulary, and suggested assessments.',
+    },
+    {
+      role: 'user',
+      content: `Source textbook: ${title}\nFocus topic: ${focus}\nBuild an RPG-friendly JSON with:\n- levels: [{name, overview, quests[]}]\n- quests: {title, description, items, abilities, dependencies}\n- vocabulary: [{term, type, description}]\n- assessments: [{name, format, success_condition}]\nBase it on this excerpt:\n"""${bookExcerpt}"""`,
+    },
+  ];
+
+  try {
+    const { content, usage } = await callGroq(messages, {
+      responseFormat: 'json_object',
+      retry: { maxRetries: 3 },
+    });
+
+    const structured = safeJSON(content);
+    const responsePayload = {
+      title,
+      structured: structured ?? { raw: content },
+      usage,
+      via: 'groq',
+    };
+
+    if (!structured) {
+      responsePayload.warnings = ['GROQ_PARSE_ERROR'];
+    }
+
+    return responsePayload;
+  } catch (error) {
+    if (isMissingKeyError(error)) {
+      return {
+        title,
+        structured: sampleStructure,
+        via: 'mock',
+        message: 'Set GROQ_API_KEY to replace mock data.',
+      };
+    }
+
+    throw error;
+  }
+}
+
+async function generateNarrativePayload({ structured, learningGoal }) {
+  const trimmedStructure = JSON.stringify(structured).slice(0, 8000);
+  const messages = [
+    {
+      role: 'system',
+      content:
+        'You are an imaginative yet accurate RPG writer. Given structured learning data, write concise lore, NPC hooks, and encounter ideas that reinforce the knowledge.',
+    },
+    {
+      role: 'user',
+      content: `Structured data:\n${trimmedStructure}\nLearning goal: ${learningGoal}\nReturn JSON with introduction, regions (name, npc, questHook), encounters (name, mechanic, reward), and rewards (name, benefit).`,
+    },
+  ];
+
+  try {
+    const { content, usage } = await callGroq(messages, {
+      responseFormat: 'json_object',
+      retry: { maxRetries: 3 },
+    });
+    const narrative = safeJSON(content);
+    const responsePayload = {
+      narrative: narrative ?? { raw: content },
+      usage,
+      via: 'groq',
+    };
+
+    if (!narrative) {
+      responsePayload.warnings = ['GROQ_PARSE_ERROR'];
+    }
+
+    return responsePayload;
+  } catch (error) {
+    if (isMissingKeyError(error)) {
+      return {
+        narrative: sampleNarrative,
+        via: 'mock',
+        message: 'Set GROQ_API_KEY to replace mock data.',
+      };
+    }
+
+    throw error;
+  }
+}
+
+async function saveGeneratedWorld({ userId, title, focus, text, structured, via, usage, warnings }) {
+  return prisma.$transaction(async (tx) => {
+    const sourceDocument = await tx.sourceDocument.create({
+      data: {
+        userId,
+        title,
+        sourceType: 'PASTED_TEXT',
+        originalText: text,
+        extractedText: text,
+        textHash: crypto.createHash('sha256').update(text).digest('hex'),
+      },
+    });
+
+    const worldDescription = deriveWorldDescription(structured, focus);
+
+    const world = await tx.rpgWorld.create({
+      data: {
+        userId,
+        sourceDocumentId: sourceDocument.id,
+        title,
+        focus,
+        description: worldDescription,
+        status: 'READY',
+        generatedJson: {
+          structured,
+          via,
+          usage: usage ?? null,
+          warnings: warnings ?? [],
+        },
+      },
+    });
+
+    const questRows = buildQuestRows(structured, world.id);
+    const createdQuests = [];
+    for (const questRow of questRows) {
+      const quest = await tx.quest.create({ data: questRow });
+      createdQuests.push(quest);
+    }
+
+    const conceptRows = buildConceptRows(structured, world.id);
+    const createdConcepts = [];
+    for (const conceptRow of conceptRows) {
+      const concept = await tx.concept.create({ data: conceptRow });
+      createdConcepts.push(concept);
+    }
+
+    const skillRows = buildSkillRows(structured, world.id);
+    for (const skillRow of skillRows) {
+      await tx.skill.create({ data: skillRow });
+    }
+
+    const starterIdentity = buildStarterCharacter(title, focus, structured);
+    const firstQuestId = createdQuests[0]?.id ?? null;
+    const character = await tx.character.create({
+      data: {
+        userId,
+        rpgWorldId: world.id,
+        name: starterIdentity.name,
+        className: starterIdentity.className,
+        currentQuestId: firstQuestId,
+      },
+    });
+
+    if (createdQuests.length) {
+      await tx.characterProgress.createMany({
+        data: createdQuests.map((quest, index) => ({
+          characterId: character.id,
+          questId: quest.id,
+          status: index === 0 ? 'AVAILABLE' : 'LOCKED',
+        })),
+      });
+    }
+
+    if (createdConcepts.length) {
+      await tx.conceptMastery.createMany({
+        data: createdConcepts.map((concept) => ({
+          characterId: character.id,
+          conceptId: concept.id,
+          masteryScore: 0,
+          timesPracticed: 0,
+        })),
+      });
+    }
+
+    const hydratedWorld = await tx.rpgWorld.findUnique({
+      where: { id: world.id },
+      include: worldIncludeForUser(userId),
+    });
+
+    return {
+      sourceDocument,
+      world: hydratedWorld,
+      character,
+    };
+  });
+}
+
+function buildQuestRows(structured, rpgWorldId) {
+  const levels = Array.isArray(structured?.levels) ? structured.levels : [];
+  const rows = [];
+  let sortOrder = 0;
+
+  levels.forEach((level, levelIndex) => {
+    const quests = Array.isArray(level?.quests) ? level.quests : [];
+    quests.forEach((quest, questIndex) => {
+      rows.push({
+        rpgWorldId,
+        levelName: valueOrNull(level?.name),
+        title: normalizeTextField(quest?.title, `Quest ${levelIndex + 1}.${questIndex + 1}`),
+        description: valueOrNull(quest?.description),
+        learningGoal: valueOrNull(level?.overview),
+        sortOrder,
+        rewardJson: {
+          items: arrayOrEmpty(quest?.items),
+          abilities: arrayOrEmpty(quest?.abilities),
+        },
+        dependencyJson: arrayOrEmpty(quest?.dependencies),
+        generatedJson: quest ?? {},
+      });
+      sortOrder += 1;
+    });
+  });
+
+  return rows;
+}
+
+function buildConceptRows(structured, rpgWorldId) {
+  const vocabulary = Array.isArray(structured?.vocabulary) ? structured.vocabulary : [];
+  const rows = [];
+  const seen = new Set();
+
+  vocabulary.forEach((entry) => {
+    const name = normalizeTextField(entry?.term, '');
+    if (!name) return;
+
+    const key = name.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+
+    rows.push({
+      rpgWorldId,
+      name,
+      type: valueOrNull(entry?.type),
+      description: valueOrNull(entry?.description),
+    });
+  });
+
+  return rows;
+}
+
+function buildSkillRows(structured, rpgWorldId) {
+  const rows = [];
+  const seen = new Set();
+
+  const registerSkill = (name, description, source) => {
+    const normalizedName = normalizeTextField(name, '');
+    if (!normalizedName) return;
+
+    const key = normalizedName.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+
+    rows.push({
+      rpgWorldId,
+      name: normalizedName,
+      description: valueOrNull(description),
+      source,
+    });
+  };
+
+  const vocabulary = Array.isArray(structured?.vocabulary) ? structured.vocabulary : [];
+  vocabulary.forEach((entry) => {
+    if (String(entry?.type || '').toLowerCase() === 'skill') {
+      registerSkill(entry?.term, entry?.description, 'vocabulary');
+    }
+  });
+
+  const levels = Array.isArray(structured?.levels) ? structured.levels : [];
+  levels.forEach((level) => {
+    const quests = Array.isArray(level?.quests) ? level.quests : [];
+    quests.forEach((quest) => {
+      arrayOrEmpty(quest?.abilities).forEach((ability) => {
+        registerSkill(ability, `Unlocked through ${normalizeTextField(quest?.title, 'a quest')}.`, 'quest_ability');
+      });
+    });
+  });
+
+  return rows;
+}
+
+function buildStarterCharacter(title, focus, structured) {
+  const levels = Array.isArray(structured?.levels) ? structured.levels : [];
+  const firstQuestTitle = levels[0]?.quests?.[0]?.title;
+  const firstFocusWord = normalizeTextField(focus, '').split(/[,\s]+/).filter(Boolean)[0];
+  const worldKeyword = normalizeTextField(firstFocusWord || title, 'TextQuest')
+    .replace(/[^A-Za-z0-9 ]/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .join(' ');
+
+  return {
+    name: `${worldKeyword || 'Quest'} Seeker`,
+    className: firstQuestTitle ? 'Scholar Adventurer' : 'Scholar',
+  };
+}
+
+function deriveWorldDescription(structured, focus) {
+  const firstLevelOverview = valueOrNull(structured?.levels?.[0]?.overview);
+  const firstAssessment = valueOrNull(structured?.assessments?.[0]?.name);
+
+  return firstLevelOverview || firstAssessment || `A TextQuest RPG world built around ${normalizeTextField(focus, 'this topic')}.`;
+}
+
+function worldIncludeForUser(userId) {
+  return {
+    sourceDocument: true,
+    quests: {
+      orderBy: { sortOrder: 'asc' },
+    },
+    concepts: {
+      orderBy: { name: 'asc' },
+    },
+    skills: {
+      orderBy: { name: 'asc' },
+    },
+    characters: {
+      where: { userId },
+      include: {
+        progress: {
+          include: {
+            quest: true,
+          },
+        },
+        conceptMasteries: {
+          include: {
+            concept: true,
+          },
+        },
+        skills: {
+          include: {
+            skill: true,
+          },
+        },
+      },
+      take: 1,
+    },
+  };
+}
+
+function formatWorldSummary(world) {
+  const character = world?.characters?.[0] ?? null;
+  const progress = Array.isArray(character?.progress) ? character.progress : [];
+  const concepts = Array.isArray(character?.conceptMasteries) ? character.conceptMasteries : [];
+  const currentQuest = findCurrentQuest(world, character);
+
+  return {
+    id: world.id,
+    title: world.title,
+    focus: world.focus,
+    description: world.description,
+    status: world.status,
+    createdAt: world.createdAt,
+    updatedAt: world.updatedAt,
+    masteryPercent: calculateMasteryPercent(concepts),
+    questProgress: {
+      completed: progress.filter((entry) => entry.status === 'COMPLETED').length,
+      total: Array.isArray(world.quests) ? world.quests.length : 0,
+    },
+    counts: {
+      concepts: Array.isArray(world.concepts) ? world.concepts.length : 0,
+      skills: Array.isArray(world.skills) ? world.skills.length : 0,
+    },
+    currentQuest: currentQuest
+      ? {
+        id: currentQuest.id,
+        title: currentQuest.title,
+      }
+      : null,
+    character: character
+      ? {
+        id: character.id,
+        name: character.name,
+        className: character.className,
+        level: character.level,
+        xp: character.xp,
+        currentQuestId: character.currentQuestId,
+      }
+      : null,
+  };
+}
+
+function formatWorldDetail(world) {
+  const summary = formatWorldSummary(world);
+  const character = world?.characters?.[0] ?? null;
+  const progressByQuestId = new Map(
+    (character?.progress ?? []).map((entry) => [entry.questId, entry])
+  );
+  const masteryByConceptId = new Map(
+    (character?.conceptMasteries ?? []).map((entry) => [entry.conceptId, entry])
+  );
+  const unlockedSkillIds = new Set(
+    (character?.skills ?? []).map((entry) => entry.skillId)
+  );
+
+  return {
+    ...summary,
+    structured: world.generatedJson?.structured ?? world.generatedJson ?? null,
+    narrative: world.narrativeJson?.narrative ?? world.narrativeJson ?? null,
+    narrativeMeta: world.narrativeJson
+      ? {
+        via: world.narrativeJson.via ?? null,
+        learningGoal: world.narrativeJson.learningGoal ?? null,
+        warnings: world.narrativeJson.warnings ?? [],
+      }
+      : null,
+    sourceDocument: world.sourceDocument
+      ? {
+        id: world.sourceDocument.id,
+        title: world.sourceDocument.title,
+        sourceType: world.sourceDocument.sourceType,
+        createdAt: world.sourceDocument.createdAt,
+      }
+      : null,
+    quests: (world.quests ?? []).map((quest) => {
+      const progress = progressByQuestId.get(quest.id);
+      return {
+        id: quest.id,
+        levelName: quest.levelName,
+        title: quest.title,
+        description: quest.description,
+        learningGoal: quest.learningGoal,
+        sortOrder: quest.sortOrder,
+        status: progress?.status ?? 'LOCKED',
+        attempts: progress?.attempts ?? 0,
+        score: progress?.score ?? 0,
+        completedAt: progress?.completedAt ?? null,
+        rewards: quest.rewardJson ?? null,
+        dependencies: quest.dependencyJson ?? [],
+      };
+    }),
+    concepts: (world.concepts ?? []).map((concept) => {
+      const mastery = masteryByConceptId.get(concept.id);
+      return {
+        id: concept.id,
+        name: concept.name,
+        type: concept.type,
+        description: concept.description,
+        difficulty: concept.difficulty,
+        masteryScore: mastery?.masteryScore ?? 0,
+        timesPracticed: mastery?.timesPracticed ?? 0,
+      };
+    }),
+    skills: (world.skills ?? []).map((skill) => ({
+      id: skill.id,
+      name: skill.name,
+      description: skill.description,
+      source: skill.source,
+      unlocked: unlockedSkillIds.has(skill.id),
+    })),
+  };
+}
+
+function findCurrentQuest(world, character) {
+  if (!character?.currentQuestId) return null;
+  return (world?.quests ?? []).find((quest) => quest.id === character.currentQuestId) ?? null;
+}
+
+function calculateMasteryPercent(concepts) {
+  if (!Array.isArray(concepts) || concepts.length === 0) {
+    return 0;
+  }
+
+  const total = concepts.reduce((sum, concept) => sum + (Number(concept.masteryScore) || 0), 0);
+  return Math.round(total / concepts.length);
+}
+
+function handleGenerationError(res, scope, error, fallbackMessage) {
+  if (error instanceof GroqError) {
+    console.error(`[${scope}] GroqError`, { type: error.type, status: error.status });
+
+    if (error.type === 'RATE_LIMIT' || error.status === 429) {
+      return res.status(503).json({
+        error: 'TextQuest is temporarily rate limited by the AI provider. Please wait a moment and try again.',
+        code: 'GROQ_RATE_LIMIT',
+        status: error.status,
+      });
+    }
+
+    if (error.type === 'PARSE_ERROR') {
+      return res.status(502).json({
+        error: 'We had trouble understanding the AI response. Please try again.',
+        code: 'GROQ_PARSE_ERROR',
+        status: error.status,
+      });
+    }
+
+    return res.status(502).json({
+      error: 'The AI service is currently unavailable. Please try again.',
+      code: 'GROQ_UPSTREAM_ERROR',
+      status: error.status,
+    });
+  }
+
+  console.error(`[${scope}] Failed`, error);
+  return res.status(500).json({
+    error: fallbackMessage,
+    code: 'UNKNOWN_SERVER_ERROR',
+  });
+}
+
+function handleNarrativeError(res, scope, error) {
+  if (error instanceof GroqError) {
+    console.error(`[${scope}] GroqError`, { type: error.type, status: error.status });
+
+    if (error.type === 'RATE_LIMIT' || error.status === 429) {
+      return res.status(503).json({
+        error: 'Narrative generation is temporarily rate limited. Please wait a moment and try again.',
+        code: 'GROQ_RATE_LIMIT',
+        status: error.status,
+      });
+    }
+
+    if (error.type === 'PARSE_ERROR') {
+      return res.status(502).json({
+        error: 'We had trouble understanding the AI response for narrative. Please try again.',
+        code: 'GROQ_PARSE_ERROR',
+        status: error.status,
+      });
+    }
+
+    return res.status(502).json({
+      error: 'The AI narrative service is currently unavailable. Please try again.',
+      code: 'GROQ_UPSTREAM_ERROR',
+      status: error.status,
+    });
+  }
+
+  console.error(`[${scope}] Failed`, error);
+  return res.status(500).json({
+    error: 'Failed to craft narrative content',
+    code: 'UNKNOWN_SERVER_ERROR',
+  });
+}

@@ -36,6 +36,7 @@ const loginEmail = document.getElementById('loginEmail');
 const loginPassword = document.getElementById('loginPassword');
 
 let currentStructure = null;
+let currentWorldId = null;
 let currentUser = null;
 let appConfig = {
   mode: 'local',
@@ -71,8 +72,9 @@ processButton.addEventListener('click', async () => {
       focus: focusInput.value.trim(),
       text,
     };
+    const endpoint = currentUser ? '/api/worlds/generate' : '/api/process';
 
-    const response = await fetch('/api/process', {
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -99,6 +101,12 @@ processButton.addEventListener('click', async () => {
     }
 
     renderStructure(result);
+
+    if (result.saved && result.world && result.character) {
+      showToast(`Saved "${result.world.title}". You now play as ${result.character.name}, this world's protagonist.`, 'info');
+    } else if (!currentUser) {
+      showToast('Sign in to save this RPG world and its character to your library.', 'info');
+    }
   }
   catch (error) {
     structureOutput.classList.remove('empty-state');
@@ -117,55 +125,8 @@ processButton.addEventListener('click', async () => {
 });
 
 narrativeButton.addEventListener('click', async () => {
-  if (!currentStructure) return;
-  setStatus(narrativeStatus, 'Generating...', true);
-  narrativeButton.disabled = true;
-  try {
-    const payload = {
-      structured: currentStructure,
-      learningGoal: goalInput.value.trim(),
-    };
-    const response = await fetch('/api/narrative', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-
-    let result;
-    try {
-      result = await response.json();
-    } catch (parseError) {
-      showToast('Received an unexpected response from the server. Please try again.', 'error');
-      throw new Error('Unexpected server response');
-    }
-
-    if (!response.ok) {
-      const friendly = result?.error || 'Failed to generate narrative layer.';
-      const code = result?.code;
-      const message = code ? `${friendly} (${code})` : friendly;
-      throw new Error(message);
-    }
-
-    if (Array.isArray(result.warnings) && result.warnings.includes('GROQ_PARSE_ERROR')) {
-      showToast('AI response was slightly malformed. Showing best-effort narrative.', 'warning');
-    }
-
-    renderNarrative(result);
-  } catch (error) {
-    narrativeOutput.classList.remove('empty-state');
-    narrativeOutput.innerHTML = `<div class="card"><h4>Error</h4><p>${formatValue(error.message)}</p></div>`;
-
-    if (!navigator.onLine) {
-      showToast('You appear to be offline. Please check your internet connection.', 'error');
-    } else if (error?.message) {
-      showToast(error.message, 'error');
-    } else {
-      showToast('Something went wrong while generating the narrative.', 'error');
-    }
-  } finally {
-    narrativeButton.disabled = false;
-    setStatus(narrativeStatus, 'Idle', false);
-  }
+  if (!currentWorldId) return;
+  window.location.href = `/world.html?id=${encodeURIComponent(currentWorldId)}#narrative`;
 });
 
 graphButton.addEventListener('click', async () => {
@@ -458,17 +419,33 @@ function formatPair(primary, secondary, separator = ' - ') {
 }
 
 function renderStructure(result) {
-  const { structured, via, title } = result;
+  const { structured, via, title, world, character } = result;
   currentStructure = structured;
   narrativeButton.disabled = false;
   graphButton.disabled = !appConfig.features.conceptGraph;
   structureOutput.classList.remove('empty-state');
   graphOutput.classList.add('empty-state');
-  graphOutput.innerHTML = '<p>Build a concept graph to see dependencies.</p>';
+  graphOutput.innerHTML = '<p>Build a knowledge map to see concept dependencies and mastery paths.</p>';
   if (structured) {
     localStorage.setItem('textquest_structure', JSON.stringify(structured));
   }
   let html = '';
+
+  if (world && character) {
+    currentWorldId = world.id;
+    html += `
+      <article class="card">
+        <h4>Your protagonist is ready</h4>
+        <p>You are now playing as <strong>${formatValue(character.name, 'Your character')}</strong> in <strong>${formatValue(world.title, title || 'this RPG world')}</strong>.</p>
+        <p><strong>Role:</strong> ${formatValue(character.className, 'Scholar')} | <strong>Mastery track:</strong> this character owns the progress for this world.</p>
+        <div class="button-row">
+          <a class="secondary-button" href="/world.html?id=${encodeURIComponent(world.id)}">Open world details</a>
+        </div>
+      </article>
+    `;
+  } else {
+    currentWorldId = null;
+  }
 
   if (structured?.levels?.length) {
     html += `<div class="badge">Source: ${formatValue(title, 'Untitled')} | ${formatValue(via, 'unknown')}</div>`;
@@ -537,8 +514,9 @@ function renderNarrative(result) {
   const { narrative, via } = result;
   narrativeOutput.classList.remove('empty-state');
   let html = `<div class="badge">Narrative | ${formatValue(via, 'unknown')}</div>`;
+  html += `<article class="card"><h4>Playable Layer</h4><p>This material becomes the scenes, NPCs, and encounter framing your protagonist experiences while learning.</p></article>`;
   if (narrative?.introduction) {
-    html += `<article class="card"><h4>Overview</h4><p>${formatValue(narrative.introduction)}</p></article>`;
+  html += `<article class="card"><h4>Scene Overview</h4><p>${formatValue(narrative.introduction)}</p></article>`;
   }
 
   if (narrative?.regions?.length) {
@@ -591,7 +569,7 @@ function renderGraph(result) {
     }</div>`;
 
   html += `<article class="card">
-    <h4>Overview</h4>
+    <h4>Knowledge Map Overview</h4>
     <p>${graph.metadata?.totalConcepts || 0} concepts · ${graph.metadata?.totalEdges || 0} links</p>
   </article>`;
 
@@ -620,21 +598,22 @@ function renderGraph(result) {
 
 function clearStructure() {
   currentStructure = null;
+  currentWorldId = null;
   localStorage.removeItem('textquest_structure');
   localStorage.removeItem('textquest_graph');
   narrativeButton.disabled = true;
   graphButton.disabled = true;
   structureOutput.classList.add('empty-state');
   structureOutput.innerHTML = '<p>Crunching blueprint...</p>';
-  narrativeOutput.innerHTML = '<p>Narrative results will appear here.</p>';
+  narrativeOutput.innerHTML = '<p>Save a world first, then generate its narrative from the world detail page.</p>';
   narrativeOutput.classList.add('empty-state');
-  graphOutput.innerHTML = '<p>Concept graph will appear here.</p>';
+  graphOutput.innerHTML = '<p>Knowledge map will appear here.</p>';
   graphOutput.classList.add('empty-state');
 }
 
 function toggleButtons(isLoading) {
   processButton.disabled = isLoading;
-  narrativeButton.disabled = isLoading || !currentStructure;
+  narrativeButton.disabled = isLoading || !currentWorldId;
   graphButton.disabled = isLoading || !currentStructure || !appConfig.features.conceptGraph;
 }
 

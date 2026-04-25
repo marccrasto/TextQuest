@@ -20,7 +20,7 @@
         <h1>TextQuest</h1>
         <p class="lede">
           Transform dense textbook passages into explorable RPG outlines. Paste an excerpt, hit generate, and
-          instantly see levels, quests, and narrative hooks.
+          become the protagonist of a textbook-born learning RPG with its own quests, mastery, and progression.
         </p>
         <div class="hero-actions">
           <a id="dashboardLink" href="/dashboard" class="primary-button">
@@ -31,9 +31,9 @@
       <div class="hero-card">
         <h2>Quest Console</h2>
         <ul>
-          <li>Scan source text</li>
-          <li>Forge quests and rewards</li>
-          <li>Track player progress</li>
+          <li>Turn a textbook section into its own RPG world</li>
+          <li>Play as that world's protagonist character</li>
+          <li>Build mastery through quests, scenes, and encounters</li>
         </ul>
       </div>
     </header>
@@ -97,7 +97,7 @@
       <div class="panel-header">
         <div>
           <h3>1. Upload or paste content</h3>
-          <p>We'll analyze the hierarchy, key concepts, and quest flow.</p>
+          <p>We'll analyze the concepts, then forge a world where you play as the main character.</p>
         </div>
         <button id="useSample" class="ghost-button">Use sample</button>
       </div>
@@ -133,7 +133,7 @@
       <div class="panel-header">
         <div>
           <h3>2. RPG blueprint</h3>
-          <p>Levels, quests, vocabulary, and suggested assessments.</p>
+          <p>Your world structure: regions, quests, vocabulary, and the protagonist's learning path.</p>
         </div>
         <span id="processStatus" class="status-dot">Idle</span>
       </div>
@@ -145,14 +145,14 @@
     <section class="panel">
       <div class="panel-header">
         <div>
-          <h3>3. Concept graph</h3>
-          <p>Cluster quests and items into topics and save a dependency graph.</p>
+          <h3>3. Knowledge map</h3>
+          <p>Use the concept graph as a world map of ideas, prerequisites, and mastery gaps.</p>
         </div>
         <span id="graphStatus" class="status-dot">Idle</span>
       </div>
       <div class="button-row">
-        <button id="graphButton" class="secondary-button" disabled>Build concept graph</button>
-        <a class="ghost-button" href="quest-graph-panel.html" target="_blank" rel="noreferrer">Open quest graph
+        <button id="graphButton" class="secondary-button" disabled>Build knowledge map</button>
+        <a class="ghost-button" href="quest-graph-panel.html" target="_blank" rel="noreferrer">Open knowledge map
           viewer</a>
       </div>
       <div id="graphOutput" class="output-grid empty-state">
@@ -164,7 +164,7 @@
       <div class="panel-header">
         <div>
           <h3>4. Narrative + encounters</h3>
-          <p>Ground the blueprint in NPCs, regions, and assessment encounters.</p>
+          <p>Generate world narrative from the saved world page, where the scenes and encounters stay attached to that RPG.</p>
         </div>
         <span id="narrativeStatus" class="status-dot">Idle</span>
       </div>
@@ -172,9 +172,9 @@
         <span>Learning goal (optional)</span>
         <textarea id="goalInput" rows="3" placeholder="Keep it fun, highlight lab safety, etc."></textarea>
       </label>
-      <button id="narrativeButton" class="secondary-button" disabled>Generate narrative layer</button>
+      <button id="narrativeButton" class="secondary-button" disabled>Open world narrative tools</button>
       <div id="narrativeOutput" class="output-grid empty-state">
-        <p>Narrative results will appear here.</p>
+        <p>Save a world first, then generate its narrative from the world detail page.</p>
       </div>
     </section>
   </main>

@@ -669,3 +669,60 @@
     background: rgba(255, 209, 102, 0.08);
     border-color: var(--accent-2);
 }
+
+.world-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1rem;
+}
+
+.world-card {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.world-card h3 {
+    margin: 0.25rem 0 0;
+}
+
+.world-card__header {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-start;
+}
+
+.world-card__label {
+    margin: 0;
+    color: var(--accent-3);
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.world-card__focus {
+    margin: 0;
+    color: var(--muted);
+}
+
+.world-card__stats {
+    display: grid;
+    gap: 0.8rem;
+}
+
+.world-card__stats div {
+    display: grid;
+    gap: 0.15rem;
+    padding: 0.8rem;
+    border: 1px solid rgba(125, 234, 255, 0.12);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.22);
+}
+
+.world-card__stat-label {
+    color: var(--muted);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}

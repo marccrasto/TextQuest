@@ -495,12 +495,37 @@ form {
   border-color: var(--danger);
 }
 
+.world-shell {
+  max-width: 1180px;
+}
+
+.world-grid-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.95fr);
+  gap: 1rem;
+}
+
+.world-hero-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.85rem;
+}
+
+.world-mini-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
 @media (max-width: 760px) {
   .container {
     padding: 1rem 0.85rem 3rem;
   }
 
   .hero {
+    grid-template-columns: 1fr;
+  }
+
+  .world-grid-layout {
     grid-template-columns: 1fr;
   }
 

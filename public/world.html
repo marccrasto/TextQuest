@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TextQuest World</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet" />
+</head>
+
+<body>
+  <div id="toastContainer" class="toast-container"></div>
+  <main class="container world-shell">
+    <section id="worldGate" class="panel">
+      <div class="panel-header">
+        <div>
+          <h3 id="worldGateTitle">Loading world...</h3>
+          <p id="worldGateText">We’re gathering your protagonist, blueprint, and narrative tools.</p>
+        </div>
+      </div>
+      <div class="button-row">
+        <a href="/" class="primary-button">Return home</a>
+        <a href="/dashboard" class="ghost-button">Open dashboard</a>
+      </div>
+    </section>
+
+    <div id="worldContent" class="hidden">
+      <div class="dashboard-nav">
+        <a href="/dashboard" class="back-button">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 12H5M12 19l-7-7 7-7" />
+          </svg>
+          Back to Dashboard
+        </a>
+      </div>
+
+      <header id="worldHero" class="panel"></header>
+
+      <div class="world-grid-layout">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h3>Blueprint</h3>
+              <p>The structural foundation of this RPG world.</p>
+            </div>
+          </div>
+          <div id="worldBlueprint" class="output-grid empty-state">
+            <p>Blueprint details will appear here.</p>
+          </div>
+        </section>
+
+        <section id="narrative" class="panel">
+          <div class="panel-header">
+            <div>
+              <h3>World Narrative</h3>
+              <p>Generate the NPCs, regions, and encounter framing that bring this world to life.</p>
+            </div>
+            <span id="worldNarrativeStatus" class="status-dot">Idle</span>
+          </div>
+          <label class="full-width">
+            <span>Learning goal (optional)</span>
+            <textarea id="worldGoalInput" rows="3" placeholder="Keep it spooky, make it tactical, focus on application..."></textarea>
+          </label>
+          <div class="button-row">
+            <button id="worldNarrativeButton" class="secondary-button" type="button">Generate world narrative</button>
+          </div>
+          <div id="worldNarrativeOutput" class="output-grid empty-state">
+            <p>Narrative scenes, regions, and encounters will appear here.</p>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <script src="world.js" type="module"></script>
+</body>
+
+</html>
