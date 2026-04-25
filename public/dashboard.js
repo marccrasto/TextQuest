@@ -1,245 +1,81 @@
-import mockUser from './mockUserData.js';
+const dashboardGate = document.getElementById('dashboardGate');
+const dashboardGateTitle = document.getElementById('dashboardGateTitle');
+const dashboardGateText = document.getElementById('dashboardGateText');
+const dashboardContent = document.getElementById('dashboardContent');
 
-// ----------------- Dashboard State -----------------
-let currentUser = mockUser;
-
-// ----------------- Main Initialization -----------------
-function initializeDashboard() {
+async function loadCurrentUser() {
     try {
-        // Populate hero section
-        populateHeroSection();
-
-        // Populate drawer sections
-        populateLevelProgress();
-        populateVocabularyProgress();
-        populateQuestDetails();
-        populateAssessmentDetails();
-        populateBadges();
-
-        // Set initial drawer states (all open by default, or load from preferences)
-        setInitialDrawerStates();
-
-        console.log('Dashboard initialized successfully!');
+        const response = await fetch('/api/me');
+        const result = await response.json();
+        return result?.authenticated ? result.user : null;
     } catch (error) {
-        console.error('Error initializing dashboard:', error);
+        console.warn('Failed to load current user for dashboard.', error);
+        return null;
     }
 }
 
-// ----------------- Hero Section -----------------
-function populateHeroSection() {
-    document.getElementById('userName').textContent = currentUser.name || 'Player';
-
-    const currentRegion = currentUser.RegionProgress[currentUser.currentRegionIndex];
-    document.getElementById('currentRegion').textContent = currentRegion?.name || 'Unknown Region';
-
-    document.getElementById('currentQuest').textContent = currentUser.currentQuest || 'No active quest';
+function showGate(title, text) {
+    dashboardGateTitle.textContent = title;
+    dashboardGateText.textContent = text;
+    dashboardGate.classList.remove('hidden');
+    dashboardContent.classList.add('hidden');
 }
 
-// ----------------- Level Progress -----------------
-function populateLevelProgress() {
-    const container = document.getElementById('levelProgressContent');
-    const levels = currentUser.levelProgress;
+function renderSignedInPlaceholder(user) {
+    const name = user.displayName || user.email || 'Player';
 
-    if (!levels || levels.length === 0) {
-        container.innerHTML = '<p class="no-content">No levels available.</p>';
-        return;
-    }
+    dashboardContent.innerHTML = `
+        <div class="dashboard-nav">
+            <a href="/" class="back-button">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M19 12H5M12 19l-7-7 7-7" />
+                </svg>
+                Back to Main Page
+            </a>
+        </div>
 
-    container.innerHTML = levels.map((level, index) => {
-        const isCompleted = level.isCompleted;
-        const isActive = index === currentUser.currentLevel - 1;
-        const isLocked = index > currentUser.currentLevel - 1;
-
-        const icon = isCompleted ? '✔' : isActive ? '▶' : '🔒';
-        const statusClass = isCompleted ? 'completed' : isActive ? 'active' : 'locked';
-        const statusText = isCompleted ? 'Completed' : isActive ? 'In Progress' : 'Locked';
-
-        const completedQuests = level.quests.filter(q => q.isCompleted).length;
-        const totalQuests = level.quests.length;
-
-        return `
-            <div class="level-item">
-                <div class="level-icon">${icon}</div>
-                <div class="level-info">
-                    <h4 class="level-name">${level.name}</h4>
-                    <p class="level-quests">${completedQuests} / ${totalQuests} Quests Completed</p>
+        <header class="dashboard-hero">
+            <div class="welcome-section">
+                <h1>Welcome back, <span>${name}</span></h1>
+                <div class="hero-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">RPG Worlds</span>
+                        <span class="stat-value">Coming next</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Character Progress</span>
+                        <span class="stat-value">Coming next</span>
+                    </div>
                 </div>
-                <span class="level-status ${statusClass}">${statusText}</span>
             </div>
-        `;
-    }).join('');
-}
+        </header>
 
-// ----------------- Vocabulary Progress -----------------
-function populateVocabularyProgress() {
-    const vocab = currentUser.vocabularyProgress;
-    const learnedCount = vocab.filter(v => v.isLearned).length;
-    const totalCount = vocab.length;
-
-    document.getElementById('vocabCount').textContent = `${learnedCount} / ${totalCount}`;
-
-    const vocabList = document.getElementById('vocabList');
-    vocabList.innerHTML = vocab.map(word => `
-        <div class="vocab-item ${word.isLearned ? 'learned' : ''}">
-            <div class="vocab-term">
-                <span>${word.term}</span>
-                <span class="vocab-type">${word.type}</span>
+        <section class="panel">
+            <div class="panel-header">
+                <div>
+                    <h3>Your RPG Library</h3>
+                    <p>Account sessions are live. Saved worlds, characters, and progress will appear here once Milestone 3 is wired in.</p>
+                </div>
             </div>
-            <p class="vocab-description">${word.description}</p>
-        </div>
-    `).join('');
-}
-
-// ----------------- Quest Details -----------------
-function populateQuestDetails() {
-    const container = document.getElementById('questDetailsContent');
-
-    // Find current quest
-    let currentQuestObj = null;
-    for (const level of currentUser.levelProgress) {
-        const quest = level.quests.find(q => q.title === currentUser.currentQuest);
-        if (quest) {
-            currentQuestObj = quest;
-            break;
-        }
-    }
-
-    if (!currentQuestObj) {
-        container.innerHTML = '<p class="no-content">No active quest found.</p>';
-        return;
-    }
-
-    container.innerHTML = `
-        <h4 class="quest-title">${currentQuestObj.title}</h4>
-        <p class="quest-description">${currentQuestObj.description}</p>
-        
-        ${currentQuestObj.items && currentQuestObj.items.length > 0 ? `
-        <div class="quest-section">
-            <h4>Items to Collect</h4>
-            <ul class="quest-list">
-                ${currentQuestObj.items.map(item => `<li>${item}</li>`).join('')}
-            </ul>
-        </div>
-        ` : ''}
-        
-        ${currentQuestObj.abilities && currentQuestObj.abilities.length > 0 ? `
-        <div class="quest-section">
-            <h4>Abilities to Master</h4>
-            <ul class="quest-list">
-                ${currentQuestObj.abilities.map(ability => `<li>${ability}</li>`).join('')}
-            </ul>
-        </div>
-        ` : ''}
-        
-        ${currentQuestObj.dependencies && currentQuestObj.dependencies.length > 0 ? `
-        <div class="quest-section">
-            <h4>Prerequisites</h4>
-            <ul class="quest-list">
-                ${currentQuestObj.dependencies.map(dep => `<li>${dep}</li>`).join('')}
-            </ul>
-        </div>
-        ` : ''}
+            <div class="empty-state">
+                <p>No saved RPG worlds yet.</p>
+            </div>
+        </section>
     `;
-}
+};
 
-// ----------------- Assessment Details -----------------
-function populateAssessmentDetails() {
-    const container = document.getElementById('assessmentContent');
-    const nextAssessment = currentUser.assessmentProgress[currentUser.currentAssessmentIndex];
+document.addEventListener('DOMContentLoaded', async () => {
+    const user = await loadCurrentUser();
 
-    if (!nextAssessment) {
-        container.innerHTML = '<p class="no-content">No upcoming assessments.</p>';
+    if (!user) {
+        showGate(
+            'Sign in required',
+            'This dashboard shows saved RPG worlds and player progress. Sign in from the home page to use it.'
+        );
         return;
     }
 
-    const completedAssessments = currentUser.assessmentProgress.filter(a => a.isPassed).length;
-    const totalAssessments = currentUser.assessmentProgress.length;
-    const progressPercent = (completedAssessments / totalAssessments) * 100;
-
-    container.innerHTML = `
-        <div class="assessment-info">
-            <div class="assessment-field">
-                <label>Assessment Name</label>
-                <div class="value">${nextAssessment.name}</div>
-            </div>
-            <div class="assessment-field">
-                <label>Format</label>
-                <div class="value">${nextAssessment.format}</div>
-            </div>
-            <div class="assessment-field">
-                <label>Success Condition</label>
-                <div class="value">${nextAssessment.success_condition}</div>
-            </div>
-        </div>
-        
-        <div class="assessment-progress">
-            <label>Overall Assessment Progress (${completedAssessments} / ${totalAssessments})</label>
-            <div class="progress-bar">
-                <div class="progress-fill" style="width: ${progressPercent}%"></div>
-            </div>
-        </div>
-    `;
-}
-
-// ----------------- Badges -----------------
-function populateBadges() {
-    const container = document.getElementById('badgesContent');
-    const badges = currentUser.rewardGained;
-
-    if (!badges || badges.length === 0) {
-        container.innerHTML = '<p class="no-badges">No badges earned yet. Complete quests to earn rewards!</p>';
-        return;
-    }
-
-    container.innerHTML = badges.map(badge => `
-        <div class="badge-item">
-            <div class="badge-icon">🏆</div>
-            <div class="badge-name">${badge.name}</div>
-            <div class="badge-benefit">${badge.benefit}</div>
-        </div>
-    `).join('');
-}
-
-// ----------------- Drawer Toggle Logic -----------------
-function setupDrawerToggles() {
-    const drawers = document.querySelectorAll('.drawer');
-
-    drawers.forEach(drawer => {
-        const header = drawer.querySelector('.drawer-header');
-        const toggle = drawer.querySelector('.drawer-toggle');
-
-        const toggleDrawer = (e) => {
-            e.stopPropagation();
-            drawer.classList.toggle('collapsed');
-
-            // Save state to localStorage
-            const drawerId = drawer.getAttribute('data-drawer');
-            const isCollapsed = drawer.classList.contains('collapsed');
-            localStorage.setItem(`drawer_${drawerId}`, isCollapsed ? 'collapsed' : 'expanded');
-        };
-
-        header.addEventListener('click', toggleDrawer);
-        toggle.addEventListener('click', toggleDrawer);
-    });
-}
-
-function setInitialDrawerStates() {
-    const drawers = document.querySelectorAll('.drawer');
-
-    drawers.forEach(drawer => {
-        const drawerId = drawer.getAttribute('data-drawer');
-        const savedState = localStorage.getItem(`drawer_${drawerId}`);
-
-        // Default to expanded if no saved state
-        if (savedState === 'collapsed') {
-            drawer.classList.add('collapsed');
-        }
-    });
-}
-
-export { initializeDashboard, currentUser };
-
-document.addEventListener('DOMContentLoaded', () => {
-    initializeDashboard();
-    setupDrawerToggles();
+    dashboardGate.classList.add('hidden');
+    dashboardContent.classList.remove('hidden');
+    renderSignedInPlaceholder(user);
 });

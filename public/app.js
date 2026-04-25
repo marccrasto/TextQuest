@@ -20,6 +20,8 @@ const toastContainer = document.getElementById('toastContainer');
 const demoNotice = document.getElementById('demoNotice');
 const uploadRow = document.getElementById('uploadRow');
 const graphSection = document.getElementById('graphSection');
+const dashboardLink = document.getElementById('dashboardLink');
+const rpgsLink = document.getElementById('rpgsLink');
 const authStatus = document.getElementById('authStatus');
 const authSummary = document.getElementById('authSummary');
 const authSummaryText = document.getElementById('authSummaryText');
@@ -361,11 +363,15 @@ function syncAuthUI() {
     authSummary.classList.remove('hidden');
     authForms.classList.add('hidden');
     authSummaryText.textContent = `${currentUser.displayName || currentUser.email} • ${currentUser.email}`;
+    dashboardLink?.classList.remove('hidden');
+    rpgsLink?.classList.remove('hidden');
   } else {
     authStatus.textContent = 'Guest';
     authSummary.classList.add('hidden');
     authForms.classList.remove('hidden');
     authSummaryText.textContent = '';
+    dashboardLink?.classList.add('hidden');
+    rpgsLink?.classList.add('hidden');
   }
 }
 
