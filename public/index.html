@@ -51,6 +51,54 @@
     <section class="panel">
       <div class="panel-header">
         <div>
+          <h3>Account</h3>
+          <p>Create an account or sign in to save RPG worlds and character progress.</p>
+        </div>
+        <span id="authStatus" class="status-dot">Guest</span>
+      </div>
+      <div id="authSummary" class="card hidden">
+        <h4>Signed in</h4>
+        <p id="authSummaryText"></p>
+        <div class="button-row">
+          <button id="logoutButton" class="ghost-button" type="button">Log out</button>
+        </div>
+      </div>
+      <div id="authForms" class="auth-grid">
+        <form id="registerForm" class="card auth-card">
+          <h4>Create account</h4>
+          <label>
+            <span>Display name</span>
+            <input type="text" id="registerDisplayName" placeholder="Quest Runner" />
+          </label>
+          <label>
+            <span>Email</span>
+            <input type="email" id="registerEmail" placeholder="you@example.com" />
+          </label>
+          <label>
+            <span>Password</span>
+            <input type="password" id="registerPassword" placeholder="At least 8 characters" />
+          </label>
+          <button class="primary-button" type="submit">Create account</button>
+        </form>
+
+        <form id="loginForm" class="card auth-card">
+          <h4>Log in</h4>
+          <label>
+            <span>Email</span>
+            <input type="email" id="loginEmail" placeholder="you@example.com" />
+          </label>
+          <label>
+            <span>Password</span>
+            <input type="password" id="loginPassword" placeholder="Your password" />
+          </label>
+          <button class="secondary-button" type="submit">Log in</button>
+        </form>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
           <h3>1. Upload or paste content</h3>
           <p>We'll analyze the hierarchy, key concepts, and quest flow.</p>
         </div>

@@ -20,8 +20,21 @@ const toastContainer = document.getElementById('toastContainer');
 const demoNotice = document.getElementById('demoNotice');
 const uploadRow = document.getElementById('uploadRow');
 const graphSection = document.getElementById('graphSection');
+const authStatus = document.getElementById('authStatus');
+const authSummary = document.getElementById('authSummary');
+const authSummaryText = document.getElementById('authSummaryText');
+const authForms = document.getElementById('authForms');
+const registerForm = document.getElementById('registerForm');
+const loginForm = document.getElementById('loginForm');
+const logoutButton = document.getElementById('logoutButton');
+const registerDisplayName = document.getElementById('registerDisplayName');
+const registerEmail = document.getElementById('registerEmail');
+const registerPassword = document.getElementById('registerPassword');
+const loginEmail = document.getElementById('loginEmail');
+const loginPassword = document.getElementById('loginPassword');
 
 let currentStructure = null;
+let currentUser = null;
 let appConfig = {
   mode: 'local',
   isDemo: false,
@@ -36,6 +49,7 @@ let appConfig = {
 };
 
 loadAppConfig();
+loadCurrentUser();
 
 processButton.addEventListener('click', async () => {
 
@@ -217,6 +231,76 @@ uploadInput?.addEventListener('change', async (event) => {
   }
 });
 
+registerForm?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+
+  try {
+    const response = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        displayName: registerDisplayName.value.trim(),
+        email: registerEmail.value.trim(),
+        password: registerPassword.value,
+      }),
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result?.error || 'Failed to create account.');
+    }
+
+    currentUser = result.user;
+    syncAuthUI();
+    registerForm.reset();
+    loginForm?.reset();
+    showToast('Account created. You are now signed in.', 'info');
+  } catch (error) {
+    showToast(error.message || 'Failed to create account.', 'error');
+  }
+});
+
+loginForm?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+
+  try {
+    const response = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: loginEmail.value.trim(),
+        password: loginPassword.value,
+      }),
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result?.error || 'Failed to log in.');
+    }
+
+    currentUser = result.user;
+    syncAuthUI();
+    loginForm.reset();
+    showToast('Welcome back.', 'info');
+  } catch (error) {
+    showToast(error.message || 'Failed to log in.', 'error');
+  }
+});
+
+logoutButton?.addEventListener('click', async () => {
+  try {
+    await fetch('/api/auth/logout', {
+      method: 'POST',
+    });
+  } catch (error) {
+    console.warn('Logout request failed', error);
+  }
+
+  currentUser = null;
+  syncAuthUI();
+  showToast('Signed out.', 'info');
+});
+
 async function loadAppConfig() {
   try {
     const response = await fetch('/api/config');
@@ -256,6 +340,33 @@ function applyAppConfig() {
   }
 
   console.log(`TextQuest running in ${mode} mode`, features);
+}
+
+async function loadCurrentUser() {
+  try {
+    const response = await fetch('/api/me');
+    const result = await response.json();
+    currentUser = result?.authenticated ? result.user : null;
+  } catch (error) {
+    console.warn('Failed to load current user.', error);
+    currentUser = null;
+  }
+
+  syncAuthUI();
+}
+
+function syncAuthUI() {
+  if (currentUser) {
+    authStatus.textContent = 'Signed In';
+    authSummary.classList.remove('hidden');
+    authForms.classList.add('hidden');
+    authSummaryText.textContent = `${currentUser.displayName || currentUser.email} • ${currentUser.email}`;
+  } else {
+    authStatus.textContent = 'Guest';
+    authSummary.classList.add('hidden');
+    authForms.classList.remove('hidden');
+    authSummaryText.textContent = '';
+  }
 }
 
 clearInputButton?.addEventListener('click', () => {

@@ -248,6 +248,18 @@ label span {
   gap: 1rem;
 }
 
+.auth-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+}
+
+.auth-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
 .full-width {
   width: 100%;
 }

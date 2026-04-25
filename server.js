@@ -1,11 +1,15 @@
 const express = require('express');
+const cookieParser = require('cookie-parser');
 const multer = require('multer');
 const fs = require('fs');
 const pdfParse = require('pdf-parse')
 const cors = require('cors');
 const path = require('path');
 const { execSync } = require('child_process');
+const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 const pdfToImages = require('./pdfToImages');
+const prisma = require('./lib/db');
 require('dotenv').config();
 
 const fetch = (...args) => import('node-fetch').then(({ default: fetchFn }) => fetchFn(...args));
@@ -28,6 +32,9 @@ const upload = multer({ storage: storage });
 const app = express();
 const PORT = process.env.PORT || 3000;
 const GROQ_MODEL = process.env.GROQ_MODEL || 'llama3-8b-8192';
+const SESSION_COOKIE_NAME = 'textquest_session';
+const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-session-secret';
+const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 const APP_MODE = process.env.APP_MODE === 'demo' ? 'demo' : 'local';
 const IS_DEMO = APP_MODE === 'demo';
 const FEATURE_FLAGS = {
@@ -127,6 +134,8 @@ persistence.initializeDirectory().catch((error) => {
 
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
+app.use(cookieParser());
+app.use(attachCurrentUser);
 app.use(blockLocalOnlyStatic);
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -151,6 +160,110 @@ app.get('/api/config', (_req, res) => {
     isDemo: IS_DEMO,
     features: activeFeatures,
   });
+});
+
+app.get('/api/me', (req, res) => {
+  if (!req.currentUser) {
+    return res.status(401).json({ authenticated: false, user: null });
+  }
+
+  return res.json({
+    authenticated: true,
+    user: sanitizeUser(req.currentUser),
+  });
+});
+
+app.post('/api/auth/register', async (req, res) => {
+  const { email, password, displayName } = req.body ?? {};
+  const normalizedEmail = normalizeEmail(email);
+
+  if (!normalizedEmail) {
+    return res.status(400).json({ error: 'Email is required.' });
+  }
+
+  if (!password || password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters long.' });
+  }
+
+  try {
+    const existingUser = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (existingUser) {
+      return res.status(409).json({ error: 'An account with that email already exists.' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    const user = await prisma.user.create({
+      data: {
+        email: normalizedEmail,
+        displayName: normalizeDisplayName(displayName),
+        passwordHash,
+      },
+    });
+
+    await createSession(res, user.id);
+
+    return res.status(201).json({
+      authenticated: true,
+      user: sanitizeUser(user),
+    });
+  } catch (error) {
+    console.error('[auth] Failed to register user', error);
+    return res.status(500).json({ error: 'Failed to create account.' });
+  }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  const { email, password } = req.body ?? {};
+  const normalizedEmail = normalizeEmail(email);
+
+  if (!normalizedEmail || !password) {
+    return res.status(400).json({ error: 'Email and password are required.' });
+  }
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid email or password.' });
+    }
+
+    const isValid = await bcrypt.compare(password, user.passwordHash);
+    if (!isValid) {
+      return res.status(401).json({ error: 'Invalid email or password.' });
+    }
+
+    await createSession(res, user.id);
+
+    return res.json({
+      authenticated: true,
+      user: sanitizeUser(user),
+    });
+  } catch (error) {
+    console.error('[auth] Failed to log in user', error);
+    return res.status(500).json({ error: 'Failed to log in.' });
+  }
+});
+
+app.post('/api/auth/logout', async (req, res) => {
+  const rawToken = req.cookies?.[SESSION_COOKIE_NAME];
+
+  try {
+    if (rawToken) {
+      await prisma.session.deleteMany({
+        where: { tokenHash: hashSessionToken(rawToken) },
+      });
+    }
+  } catch (error) {
+    console.error('[auth] Failed to clear session', error);
+  }
+
+  clearSessionCookie(res);
+  return res.json({ authenticated: false });
 });
 
 app.get('/', (req, res) => {
@@ -683,6 +796,110 @@ function safeJSON(text) {
 
 function isMissingKeyError(error) {
   return typeof error?.message === 'string' && error.message.includes('GROQ_API_KEY');
+}
+
+async function attachCurrentUser(req, _res, next) {
+  const rawToken = req.cookies?.[SESSION_COOKIE_NAME];
+  req.currentUser = null;
+  req.session = null;
+
+  if (!rawToken) {
+    return next();
+  }
+
+  try {
+    const session = await prisma.session.findUnique({
+      where: { tokenHash: hashSessionToken(rawToken) },
+      include: { user: true },
+    });
+
+    if (!session || session.expiresAt <= new Date()) {
+      if (session) {
+        await prisma.session.delete({
+          where: { id: session.id },
+        });
+      }
+      return next();
+    }
+
+    req.session = session;
+    req.currentUser = session.user;
+  } catch (error) {
+    console.error('[auth] Failed to attach current user', error);
+  }
+
+  return next();
+}
+
+function requireAuth(req, res, next) {
+  if (!req.currentUser) {
+    return res.status(401).json({ error: 'Authentication required.' });
+  }
+
+  return next();
+}
+
+function normalizeEmail(email) {
+  return typeof email === 'string' ? email.trim().toLowerCase() : '';
+}
+
+function normalizeDisplayName(displayName) {
+  if (typeof displayName !== 'string') return null;
+  const trimmed = displayName.trim();
+  return trimmed ? trimmed.slice(0, 80) : null;
+}
+
+function sanitizeUser(user) {
+  if (!user) return null;
+
+  return {
+    id: user.id,
+    email: user.email,
+    displayName: user.displayName,
+    createdAt: user.createdAt,
+  };
+}
+
+function generateSessionToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+function hashSessionToken(token) {
+  return crypto
+    .createHmac('sha256', SESSION_SECRET)
+    .update(token)
+    .digest('hex');
+}
+
+async function createSession(res, userId) {
+  const rawToken = generateSessionToken();
+  const tokenHash = hashSessionToken(rawToken);
+  const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+
+  await prisma.session.create({
+    data: {
+      userId,
+      tokenHash,
+      expiresAt,
+    },
+  });
+
+  res.cookie(SESSION_COOKIE_NAME, rawToken, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    expires: expiresAt,
+    path: '/',
+  });
+}
+
+function clearSessionCookie(res) {
+  res.clearCookie(SESSION_COOKIE_NAME, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+  });
 }
 
 function requireFeature(featureName) {
