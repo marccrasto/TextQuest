@@ -49,3 +49,16 @@ Responses include `via` (`groq` vs `mock`) so the UI can display provenance.
 - Tune prompts or add new slices of metadata inside `server.js`.
 - Swap the front-end for React/Unity later - only JSON contracts need to stay stable.
 - Add persistence or queueing behind the `/api/process` route to scale ingestion.
+
+## App Modes
+
+TextQuest supports two runtime modes through `APP_MODE`:
+
+- `APP_MODE=local` enables the full local lab: PDF upload, OCR, concept graph tooling, and larger text inputs.
+- `APP_MODE=demo` limits the hosted proof of concept to pasted textbook text, hides local-only UI, blocks local-only routes, and caps text input size.
+
+Use `APP_MODE=demo` for lightweight hosted demos on platforms like Vercel.
+
+## Database
+
+TextQuest uses Prisma with Supabase Postgres for the account and RPG persistence layer. See [docs/supabase-prisma-setup.md](docs/supabase-prisma-setup.md) for setup steps.

@@ -17,8 +17,25 @@ const graphStatus = document.getElementById('graphStatus');
 const graphOutput = document.getElementById('graphOutput');
 const form = document.getElementById('uploadForm');
 const toastContainer = document.getElementById('toastContainer');
+const demoNotice = document.getElementById('demoNotice');
+const uploadRow = document.getElementById('uploadRow');
+const graphSection = document.getElementById('graphSection');
 
 let currentStructure = null;
+let appConfig = {
+  mode: 'local',
+  isDemo: false,
+  features: {
+    pdfUpload: true,
+    ocr: true,
+    largeUploads: true,
+    conceptGraph: true,
+    deepAnalytics: true,
+    maxInputChars: 50000,
+  },
+};
+
+loadAppConfig();
 
 processButton.addEventListener('click', async () => {
 
@@ -26,10 +43,17 @@ processButton.addEventListener('click', async () => {
   setStatus(processStatus, 'Generating...', true);
   toggleButtons(true);
   try {
+    const text = textInput.value.trim();
+    const maxInputChars = appConfig.features.maxInputChars;
+
+    if (text.length > maxInputChars) {
+      throw new Error(`Text is too long for ${appConfig.mode} mode. Please keep it under ${maxInputChars.toLocaleString()} characters.`);
+    }
+
     const payload = {
       title: titleInput.value.trim(),
       focus: focusInput.value.trim(),
-      text: textInput.value.trim(),
+      text,
     };
 
     const response = await fetch('/api/process', {
@@ -130,6 +154,11 @@ narrativeButton.addEventListener('click', async () => {
 
 graphButton.addEventListener('click', async () => {
   if (!currentStructure) return;
+  if (!appConfig.features.conceptGraph) {
+    showToast('Concept graphs are available in local mode only.', 'info');
+    return;
+  }
+
   setStatus(graphStatus, 'Building...', true);
   graphButton.disabled = true;
   try {
@@ -156,7 +185,7 @@ graphButton.addEventListener('click', async () => {
     graphOutput.classList.remove('empty-state');
     graphOutput.innerHTML = `<div class="card"><h4>Error</h4><p>${formatValue(error.message)}</p></div>`;
   } finally {
-    graphButton.disabled = !currentStructure;
+    graphButton.disabled = !currentStructure || !appConfig.features.conceptGraph;
     setStatus(graphStatus, 'Idle', false);
   }
 });
@@ -187,6 +216,47 @@ uploadInput?.addEventListener('change', async (event) => {
     uploadMessage.classList.remove('loading');
   }
 });
+
+async function loadAppConfig() {
+  try {
+    const response = await fetch('/api/config');
+    if (!response.ok) return;
+    appConfig = await response.json();
+    applyAppConfig();
+  } catch (error) {
+    console.warn('Failed to load app config; using local defaults.', error);
+  }
+}
+
+function applyAppConfig() {
+  const { features, isDemo, mode } = appConfig;
+  const maxInputChars = features.maxInputChars;
+
+  textInput.maxLength = maxInputChars;
+
+  if (isDemo) {
+    demoNotice?.classList.remove('hidden');
+    uploadRow?.classList.add('hidden');
+    graphSection?.classList.add('hidden');
+    uploadMessage.textContent = '';
+    document.getElementById('message').innerText = '';
+    document.querySelector('label.full-width span').textContent = 'Textbook section';
+    textInput.placeholder = `Paste a textbook section for the hosted demo (${maxInputChars.toLocaleString()} characters max)...`;
+  } else {
+    demoNotice?.classList.add('hidden');
+    uploadRow?.classList.toggle('hidden', !features.pdfUpload);
+    graphSection?.classList.toggle('hidden', !features.conceptGraph);
+    document.querySelector('label.full-width span').textContent = 'Textbook excerpt';
+    textInput.placeholder = 'Paste chapter text or upload a snippet...';
+  }
+
+  if (!features.conceptGraph) {
+    graphButton.disabled = true;
+    graphOutput.innerHTML = `<p>Concept graph tools are available in local mode.</p>`;
+  }
+
+  console.log(`TextQuest running in ${mode} mode`, features);
+}
 
 clearInputButton?.addEventListener('click', () => {
   textInput.value = '';
@@ -274,7 +344,7 @@ function renderStructure(result) {
   const { structured, via, title } = result;
   currentStructure = structured;
   narrativeButton.disabled = false;
-  graphButton.disabled = false;
+  graphButton.disabled = !appConfig.features.conceptGraph;
   structureOutput.classList.remove('empty-state');
   graphOutput.classList.add('empty-state');
   graphOutput.innerHTML = '<p>Build a concept graph to see dependencies.</p>';
@@ -448,7 +518,7 @@ function clearStructure() {
 function toggleButtons(isLoading) {
   processButton.disabled = isLoading;
   narrativeButton.disabled = isLoading || !currentStructure;
-  graphButton.disabled = isLoading || !currentStructure;
+  graphButton.disabled = isLoading || !currentStructure || !appConfig.features.conceptGraph;
 }
 
 function setStatus(el, text, loading) {

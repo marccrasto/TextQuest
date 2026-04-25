@@ -187,6 +187,30 @@ h4 {
   gap: 1rem;
 }
 
+.hidden {
+  display: none !important;
+}
+
+.mode-notice {
+  padding: 1rem 1.1rem;
+  border: 1px solid rgba(255, 209, 102, 0.42);
+  border-left: 4px solid var(--accent-2);
+  border-radius: 8px;
+  background: rgba(255, 209, 102, 0.08);
+  box-shadow: var(--shadow);
+}
+
+.mode-notice strong {
+  display: block;
+  color: #ffe2a1;
+  margin-bottom: 0.25rem;
+}
+
+.mode-notice p {
+  margin: 0;
+  color: var(--muted);
+}
+
 .panel-header {
   display: flex;
   align-items: flex-start;

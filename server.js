@@ -28,6 +28,27 @@ const upload = multer({ storage: storage });
 const app = express();
 const PORT = process.env.PORT || 3000;
 const GROQ_MODEL = process.env.GROQ_MODEL || 'llama3-8b-8192';
+const APP_MODE = process.env.APP_MODE === 'demo' ? 'demo' : 'local';
+const IS_DEMO = APP_MODE === 'demo';
+const FEATURE_FLAGS = {
+  local: {
+    pdfUpload: true,
+    ocr: true,
+    largeUploads: true,
+    conceptGraph: true,
+    deepAnalytics: true,
+    maxInputChars: 50000,
+  },
+  demo: {
+    pdfUpload: false,
+    ocr: false,
+    largeUploads: false,
+    conceptGraph: false,
+    deepAnalytics: false,
+    maxInputChars: 12000,
+  },
+};
+const activeFeatures = FEATURE_FLAGS[APP_MODE];
 const DATA_DIR = path.join(__dirname, 'data', 'graphs');
 
 const persistence = new GraphPersistence(DATA_DIR);
@@ -106,6 +127,7 @@ persistence.initializeDirectory().catch((error) => {
 
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
+app.use(blockLocalOnlyStatic);
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.use((req, res, next) => {
@@ -119,6 +141,15 @@ app.get('/api/health', (_req, res) => {
     timestamp: Date.now(),
     features: ['process', 'narrative', 'concept-graphs', 'embeddings'],
     embeddingsMode: embeddingsManager.method,
+    mode: APP_MODE,
+  });
+});
+
+app.get('/api/config', (_req, res) => {
+  res.json({
+    mode: APP_MODE,
+    isDemo: IS_DEMO,
+    features: activeFeatures,
   });
 });
 
@@ -155,6 +186,14 @@ app.post('/api/process', async (req, res) => {
   const { text, title = 'Untitled Textbook', focus = 'biology' } = req.body ?? {};
   if (!text || !text.trim()) {
     return res.status(400).json({ error: 'Text is required' });
+  }
+
+  if (text.length > activeFeatures.maxInputChars) {
+    return res.status(413).json({
+      error: `Text is too long for ${APP_MODE} mode. Please keep it under ${activeFeatures.maxInputChars.toLocaleString()} characters.`,
+      code: 'INPUT_TOO_LARGE',
+      maxInputChars: activeFeatures.maxInputChars,
+    });
   }
 
   const bookExcerpt = text.trim().slice(0, 5000);
@@ -289,6 +328,8 @@ app.post('/api/narrative', async (req, res) => {
 });
 
 
+app.use('/api/graphs', requireFeature('conceptGraph'));
+
 app.post('/api/graphs/from-structure', async (req, res) => {
   const { structured, title = 'Untitled Textbook', focus = 'general', savePersistently = false } = req.body ?? {};
   if (!structured) {
@@ -370,6 +411,8 @@ app.delete('/api/graphs/:filename', async (req, res) => {
   }
 });
 
+app.use('/api/embeddings', requireFeature('deepAnalytics'));
+
 app.post('/api/embeddings/similarity', async (req, res) => {
   const { texts } = req.body ?? {};
   if (!Array.isArray(texts) || texts.length < 2) {
@@ -413,7 +456,7 @@ async function runOCR(pdfPath) {
   }
 }
 
-app.post('/upload', upload.single('uploadFile'), async (req, res) => {
+app.post('/upload', requireFeature('pdfUpload'), upload.single('uploadFile'), async (req, res) => {
   const forceOCR = req.query.forceOCR === "1";
 
   if (!req.file) {
@@ -640,6 +683,37 @@ function safeJSON(text) {
 
 function isMissingKeyError(error) {
   return typeof error?.message === 'string' && error.message.includes('GROQ_API_KEY');
+}
+
+function requireFeature(featureName) {
+  return (_req, res, next) => {
+    if (activeFeatures[featureName]) {
+      return next();
+    }
+
+    return res.status(403).json({
+      error: `This feature is only available in local mode.`,
+      code: 'LOCAL_ONLY_FEATURE',
+      feature: featureName,
+      mode: APP_MODE,
+    });
+  };
+}
+
+function blockLocalOnlyStatic(req, res, next) {
+  const localOnlyPaths = new Set([
+    '/quest-graph-panel.html',
+  ]);
+
+  if (localOnlyPaths.has(req.path) && !activeFeatures.conceptGraph) {
+    return res.status(403).send(`
+      <h1>Local-only feature</h1>
+      <p>The concept graph viewer is disabled in demo mode.</p>
+      <p><a href="/">Return to TextQuest</a></p>
+    `);
+  }
+
+  return next();
 }
 
 

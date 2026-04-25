@@ -4,12 +4,19 @@
   "description": "Super lightweight TextQuest MVP web app",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:studio": "prisma studio"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@prisma/client": "^6.19.3",
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
@@ -18,5 +25,8 @@
     "node-fetch": "^3.3.2",
     "pdf-parse": "^1.1.1",
     "pdf-poppler": "^0.2.3"
+  },
+  "devDependencies": {
+    "prisma": "^6.19.3"
   }
 }

@@ -1,0 +1,235 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum SourceType {
+  PASTED_TEXT
+  PDF_UPLOAD
+  TEXT_UPLOAD
+}
+
+enum RpgWorldStatus {
+  GENERATING
+  READY
+  FAILED
+  ARCHIVED
+}
+
+enum QuestStatus {
+  LOCKED
+  AVAILABLE
+  IN_PROGRESS
+  COMPLETED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  displayName  String?
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions        Session[]
+  sourceDocuments SourceDocument[]
+  rpgWorlds       RpgWorld[]
+  characters      Character[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model SourceDocument {
+  id            String     @id @default(cuid())
+  userId        String
+  title         String
+  filename      String?
+  sourceType    SourceType @default(PASTED_TEXT)
+  originalText  String?
+  extractedText String
+  textHash      String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rpgWorlds RpgWorld[]
+
+  @@index([userId])
+  @@map("source_documents")
+}
+
+model RpgWorld {
+  id                String         @id @default(cuid())
+  userId            String
+  sourceDocumentId  String
+  title             String
+  focus             String?
+  description       String?
+  status            RpgWorldStatus @default(READY)
+  generatedJson     Json
+  narrativeJson     Json?
+  conceptGraphJson  Json?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceDocument SourceDocument @relation(fields: [sourceDocumentId], references: [id], onDelete: Cascade)
+  characters     Character[]
+  quests         Quest[]
+  concepts       Concept[]
+  skills         Skill[]
+
+  @@index([userId])
+  @@index([sourceDocumentId])
+  @@map("rpg_worlds")
+}
+
+model Character {
+  id             String   @id @default(cuid())
+  userId         String
+  rpgWorldId     String
+  name           String
+  className      String?
+  level          Int      @default(1)
+  xp             Int      @default(0)
+  currentQuestId String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user             User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rpgWorld         RpgWorld            @relation(fields: [rpgWorldId], references: [id], onDelete: Cascade)
+  progress         CharacterProgress[]
+  skills           CharacterSkill[]
+  conceptMasteries ConceptMastery[]
+
+  @@unique([userId, rpgWorldId])
+  @@index([rpgWorldId])
+  @@map("characters")
+}
+
+model Quest {
+  id              String  @id @default(cuid())
+  rpgWorldId      String
+  levelName       String?
+  title           String
+  description     String?
+  learningGoal    String?
+  sortOrder       Int     @default(0)
+  rewardJson      Json?
+  dependencyJson  Json?
+  challengeJson   Json?
+  generatedJson   Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  rpgWorld RpgWorld @relation(fields: [rpgWorldId], references: [id], onDelete: Cascade)
+  progress CharacterProgress[]
+
+  @@index([rpgWorldId])
+  @@map("quests")
+}
+
+model CharacterProgress {
+  id          String      @id @default(cuid())
+  characterId String
+  questId     String
+  status      QuestStatus @default(LOCKED)
+  attempts    Int         @default(0)
+  score       Int         @default(0)
+  completedAt DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  character Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  quest     Quest     @relation(fields: [questId], references: [id], onDelete: Cascade)
+
+  @@unique([characterId, questId])
+  @@index([questId])
+  @@map("character_progress")
+}
+
+model Concept {
+  id          String   @id @default(cuid())
+  rpgWorldId  String
+  name        String
+  type        String?
+  description String?
+  difficulty  Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rpgWorld  RpgWorld          @relation(fields: [rpgWorldId], references: [id], onDelete: Cascade)
+  masteries ConceptMastery[]
+
+  @@unique([rpgWorldId, name])
+  @@index([rpgWorldId])
+  @@map("concepts")
+}
+
+model ConceptMastery {
+  id              String    @id @default(cuid())
+  characterId     String
+  conceptId       String
+  masteryScore    Int       @default(0)
+  timesPracticed  Int       @default(0)
+  lastPracticedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  character Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  concept   Concept   @relation(fields: [conceptId], references: [id], onDelete: Cascade)
+
+  @@unique([characterId, conceptId])
+  @@index([conceptId])
+  @@map("concept_mastery")
+}
+
+model Skill {
+  id          String   @id @default(cuid())
+  rpgWorldId  String
+  name        String
+  description String?
+  source      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rpgWorld        RpgWorld         @relation(fields: [rpgWorldId], references: [id], onDelete: Cascade)
+  characterSkills CharacterSkill[]
+
+  @@unique([rpgWorldId, name])
+  @@index([rpgWorldId])
+  @@map("skills")
+}
+
+model CharacterSkill {
+  id          String   @id @default(cuid())
+  characterId String
+  skillId     String
+  unlockedAt  DateTime @default(now())
+
+  character Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  skill     Skill     @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([characterId, skillId])
+  @@index([skillId])
+  @@map("character_skills")
+}
