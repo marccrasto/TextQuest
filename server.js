@@ -378,11 +378,41 @@ app.get('/api/worlds/:worldId', requireAuth, async (req, res) => {
   }
 });
 
+app.delete('/api/worlds/:worldId', requireAuth, async (req, res) => {
+  try {
+    const world = await prisma.rpgWorld.findFirst({
+      where: {
+        id: req.params.worldId,
+        userId: req.currentUser.id,
+      },
+      select: { id: true, title: true },
+    });
+
+    if (!world) {
+      return res.status(404).json({ error: 'RPG world not found.' });
+    }
+
+    await prisma.rpgWorld.delete({
+      where: { id: world.id },
+    });
+
+    return res.json({
+      deleted: true,
+      worldId: world.id,
+      title: world.title,
+    });
+  } catch (error) {
+    console.error('[worlds.delete] Failed', error);
+    return res.status(500).json({ error: 'Failed to delete RPG world.' });
+  }
+});
+
 app.post('/api/worlds/:worldId/narrative', requireAuth, async (req, res) => {
   const learningGoal = normalizeTextField(
     req.body?.learningGoal,
     'Keep the player curious about the topic.'
   );
+  const restartFromBeginning = req.body?.restartFromBeginning === true;
 
   try {
     const world = await prisma.rpgWorld.findFirst({
@@ -402,31 +432,268 @@ app.post('/api/worlds/:worldId/narrative', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'This RPG world does not have a saved blueprint yet.' });
     }
 
+    if (world.narrativeJson && isWorldStarted(world) && !restartFromBeginning) {
+      return res.status(409).json({
+        error: 'This world has already started. Regenerating the narrative now would require restarting the protagonist from the beginning.',
+        code: 'NARRATIVE_LOCKED',
+        restartRequired: true,
+      });
+    }
+
     const narrativePayload = await generateNarrativePayload({
       structured,
       learningGoal,
     });
+    const refreshedQuestChallenges = buildQuestChallengesForWorld(world, structured);
 
-    await prisma.rpgWorld.update({
-      where: { id: world.id },
-      data: {
-        narrativeJson: {
-          narrative: narrativePayload.narrative,
-          via: narrativePayload.via,
-          usage: narrativePayload.usage ?? null,
-          warnings: narrativePayload.warnings ?? [],
-          learningGoal,
+    await prisma.$transaction(async (tx) => {
+      if (restartFromBeginning) {
+        await resetWorldProgress(tx, world);
+      }
+
+      await tx.rpgWorld.update({
+        where: { id: world.id },
+        data: {
+          narrativeJson: {
+            narrative: narrativePayload.narrative,
+            via: narrativePayload.via,
+            usage: narrativePayload.usage ?? null,
+            warnings: narrativePayload.warnings ?? [],
+            learningGoal,
+          },
         },
-      },
+      });
+
+      for (const questUpdate of refreshedQuestChallenges) {
+        await tx.quest.update({
+          where: { id: questUpdate.id },
+          data: {
+            challengeJson: questUpdate.challengeJson,
+          },
+        });
+      }
     });
 
     return res.json({
       saved: true,
       learningGoal,
+      restarted: restartFromBeginning,
       ...narrativePayload,
     });
   } catch (error) {
     return handleNarrativeError(res, 'worlds.narrative', error);
+  }
+});
+
+app.get('/api/worlds/:worldId/play', requireAuth, async (req, res) => {
+  try {
+    const world = await prisma.rpgWorld.findFirst({
+      where: {
+        id: req.params.worldId,
+        userId: req.currentUser.id,
+      },
+      include: worldIncludeForUser(req.currentUser.id),
+    });
+
+    if (!world) {
+      return res.status(404).json({ error: 'RPG world not found.' });
+    }
+
+    if (!hasPlayableNarrative(world)) {
+      return res.status(409).json({
+        error: 'Generate a narrative for this world before you start playing it.',
+        code: 'NARRATIVE_REQUIRED',
+      });
+    }
+
+    const playState = buildPlayState(world, req.query?.questId);
+    if (!playState) {
+      return res.status(400).json({ error: 'This world does not have a playable quest sequence yet.' });
+    }
+
+    return res.json({
+      play: playState,
+    });
+  } catch (error) {
+    console.error('[worlds.play] Failed', error);
+    return res.status(500).json({ error: 'Failed to load the play experience.' });
+  }
+});
+
+app.post('/api/worlds/:worldId/play/answer', requireAuth, async (req, res) => {
+  const answer = normalizeTextField(req.body?.answer, '');
+  const requestedQuestId = normalizeTextField(req.body?.questId, '');
+
+  if (!answer) {
+    return res.status(400).json({ error: 'An answer is required.' });
+  }
+
+  try {
+    const world = await prisma.rpgWorld.findFirst({
+      where: {
+        id: req.params.worldId,
+        userId: req.currentUser.id,
+      },
+      include: worldIncludeForUser(req.currentUser.id),
+    });
+
+    if (!world) {
+      return res.status(404).json({ error: 'RPG world not found.' });
+    }
+
+    if (!hasPlayableNarrative(world)) {
+      return res.status(409).json({
+        error: 'Generate a narrative for this world before you start playing it.',
+        code: 'NARRATIVE_REQUIRED',
+      });
+    }
+
+    const active = getQuestBundle(world, requestedQuestId);
+    if (!active) {
+      return res.status(400).json({ error: 'No active quest is available for this world.' });
+    }
+
+    const step = active.steps[active.currentStepIndex];
+    if (!step) {
+      return res.status(400).json({ error: 'There is no active step to answer right now.' });
+    }
+
+    const correct = normalizeAnswer(step.correctAnswer) === normalizeAnswer(answer);
+    const xpGained = correct ? (step.phase === 'final' ? 30 : 15) : 0;
+    const masteryDelta = correct ? (step.phase === 'final' ? 10 : 5) : 0;
+    const nextScore = correct ? active.progress.score + 1 : active.progress.score;
+    const questCompleted = correct && nextScore >= active.steps.length;
+    const nextStatus = questCompleted
+      ? 'COMPLETED'
+      : active.progress.status === 'AVAILABLE'
+        ? 'IN_PROGRESS'
+        : active.progress.status || 'IN_PROGRESS';
+
+    await prisma.$transaction(async (tx) => {
+      await tx.characterProgress.update({
+        where: { id: active.progress.id },
+        data: {
+          attempts: { increment: 1 },
+          score: correct ? { increment: 1 } : undefined,
+          status: nextStatus,
+          completedAt: questCompleted ? new Date() : null,
+        },
+      });
+
+      if (xpGained > 0) {
+        const nextXp = (active.character.xp ?? 0) + xpGained;
+        await tx.character.update({
+          where: { id: active.character.id },
+          data: {
+            xp: nextXp,
+            level: Math.floor(nextXp / 100) + 1,
+          },
+        });
+      }
+
+      if (masteryDelta > 0 && Array.isArray(step.relatedConcepts) && step.relatedConcepts.length) {
+        await applyMasteryDelta(tx, active.character.id, world.concepts, step.relatedConcepts, masteryDelta);
+      }
+
+      if (questCompleted) {
+        await unlockNextQuest(tx, active.character, world.quests, active.quest);
+      }
+    });
+
+    const refreshedWorld = await prisma.rpgWorld.findFirst({
+      where: {
+        id: world.id,
+        userId: req.currentUser.id,
+      },
+      include: worldIncludeForUser(req.currentUser.id),
+    });
+
+    return res.json({
+      correct,
+      answer,
+      feedback: correct ? step.successText : step.failureText,
+      explanation: step.explanation,
+      xpGained,
+      masteryDelta,
+      questCompleted,
+      play: buildPlayState(
+        refreshedWorld,
+        questCompleted ? (active.nextQuest?.id ?? active.quest.id) : active.quest.id
+      ),
+    });
+  } catch (error) {
+    console.error('[worlds.play.answer] Failed', error);
+    return res.status(500).json({ error: 'Failed to process the encounter answer.' });
+  }
+});
+
+app.post('/api/worlds/:worldId/play/replay', requireAuth, async (req, res) => {
+  const questId = normalizeTextField(req.body?.questId, '');
+  if (!questId) {
+    return res.status(400).json({ error: 'A quest is required to replay.' });
+  }
+
+  try {
+    const world = await prisma.rpgWorld.findFirst({
+      where: {
+        id: req.params.worldId,
+        userId: req.currentUser.id,
+      },
+      include: worldIncludeForUser(req.currentUser.id),
+    });
+
+    if (!world) {
+      return res.status(404).json({ error: 'RPG world not found.' });
+    }
+
+    if (!hasPlayableNarrative(world)) {
+      return res.status(409).json({
+        error: 'Generate a narrative for this world before you start playing it.',
+        code: 'NARRATIVE_REQUIRED',
+      });
+    }
+
+    const bundle = getQuestBundle(world, questId);
+    if (!bundle) {
+      return res.status(404).json({ error: 'Quest not found or not yet unlocked.' });
+    }
+
+    const preserveCompletion = Array.isArray(bundle.character.progress)
+      && bundle.character.progress.length > 0
+      && bundle.character.progress.every((entry) => entry.completedAt || entry.status === 'COMPLETED');
+
+    await prisma.$transaction(async (tx) => {
+      await tx.characterProgress.update({
+        where: { id: bundle.progress.id },
+        data: {
+          status: preserveCompletion ? 'IN_PROGRESS' : 'AVAILABLE',
+          attempts: 0,
+          score: 0,
+          completedAt: preserveCompletion ? bundle.progress.completedAt : null,
+        },
+      });
+
+      await tx.character.update({
+        where: { id: bundle.character.id },
+        data: { currentQuestId: bundle.quest.id },
+      });
+    });
+
+    const refreshedWorld = await prisma.rpgWorld.findFirst({
+      where: {
+        id: world.id,
+        userId: req.currentUser.id,
+      },
+      include: worldIncludeForUser(req.currentUser.id),
+    });
+
+    return res.json({
+      replayed: true,
+      play: buildPlayState(refreshedWorld, questId),
+    });
+  } catch (error) {
+    console.error('[worlds.play.replay] Failed', error);
+    return res.status(500).json({ error: 'Failed to replay this quest.' });
   }
 });
 
@@ -1126,7 +1393,7 @@ async function saveGeneratedWorld({ userId, title, focus, text, structured, via,
       },
     });
 
-    const questRows = buildQuestRows(structured, world.id);
+    const questRows = buildQuestRows(structured, world.id, text);
     const createdQuests = [];
     for (const questRow of questRows) {
       const quest = await tx.quest.create({ data: questRow });
@@ -1191,18 +1458,26 @@ async function saveGeneratedWorld({ userId, title, focus, text, structured, via,
   });
 }
 
-function buildQuestRows(structured, rpgWorldId) {
+function buildQuestRows(structured, rpgWorldId, sourceText = '') {
   const levels = Array.isArray(structured?.levels) ? structured.levels : [];
+  const conceptPool = buildConceptPool(structured);
   const rows = [];
   let sortOrder = 0;
 
   levels.forEach((level, levelIndex) => {
     const quests = Array.isArray(level?.quests) ? level.quests : [];
     quests.forEach((quest, questIndex) => {
+      const challengeJson = buildQuestChallengeSequence({
+        level,
+        quest,
+        questIndex: sortOrder,
+        conceptPool,
+      });
+
       rows.push({
         rpgWorldId,
         levelName: valueOrNull(level?.name),
-        title: normalizeTextField(quest?.title, `Quest ${levelIndex + 1}.${questIndex + 1}`),
+        title: normalizeTextField(quest?.title, `Path ${levelIndex + 1}.${questIndex + 1}`),
         description: valueOrNull(quest?.description),
         learningGoal: valueOrNull(level?.overview),
         sortOrder,
@@ -1211,6 +1486,7 @@ function buildQuestRows(structured, rpgWorldId) {
           abilities: arrayOrEmpty(quest?.abilities),
         },
         dependencyJson: arrayOrEmpty(quest?.dependencies),
+        challengeJson,
         generatedJson: quest ?? {},
       });
       sortOrder += 1;
@@ -1218,6 +1494,88 @@ function buildQuestRows(structured, rpgWorldId) {
   });
 
   return rows;
+}
+
+function buildChapterQuestRows(structured, rpgWorldId, sourceText = '') {
+  const levels = Array.isArray(structured?.levels) ? structured.levels : [];
+  const conceptPool = buildConceptPool(structured);
+  const sourceSections = extractSourceSections(sourceText, Math.max(1, levels.length));
+  const rows = [];
+
+  levels.forEach((level, levelIndex) => {
+    const chapterTitle = normalizeTextField(level?.name, `Chapter ${levelIndex + 1}`);
+    const questList = Array.isArray(level?.quests) ? level.quests : [];
+    const questTitles = questList
+      .map((quest) => normalizeTextField(quest?.title, ''))
+      .filter(Boolean);
+    const chapterDescription = valueOrNull(level?.overview)
+      || valueOrNull(questList[0]?.description)
+      || `Work through the ideas in ${chapterTitle} and use the chapter details to solve the region's conflict.`;
+    const sourceExcerpt = sourceSections[levelIndex] || sourceText.trim().slice(0, 1600);
+    const chapterQuest = {
+      title: chapterTitle,
+      description: chapterDescription,
+      items: questTitles.slice(0, 4),
+      abilities: [`Navigate ${chapterTitle}`],
+      dependencies: levelIndex > 0 ? [normalizeTextField(levels[levelIndex - 1]?.name, `Chapter ${levelIndex}`)] : [],
+      sourceExcerpt,
+    };
+
+    rows.push({
+      rpgWorldId,
+      levelName: chapterTitle,
+      title: chapterTitle,
+      description: chapterDescription,
+      learningGoal: chapterDescription,
+      sortOrder: levelIndex,
+      rewardJson: {
+        items: questTitles.slice(0, 4),
+        abilities: [`Navigate ${chapterTitle}`],
+      },
+      dependencyJson: levelIndex > 0 ? [normalizeTextField(levels[levelIndex - 1]?.name, `Chapter ${levelIndex}`)] : [],
+      challengeJson: buildQuestChallengeSequence({
+        level,
+        quest: chapterQuest,
+        questIndex: levelIndex,
+        conceptPool,
+        sourceExcerpt,
+      }),
+      generatedJson: {
+        title: chapterTitle,
+        description: chapterDescription,
+        sourceExcerpt,
+        chapterTopics: questTitles,
+        chapterIndex: levelIndex,
+      },
+    });
+  });
+
+  return rows;
+}
+
+function buildQuestChallengesForWorld(world, structured) {
+  const conceptPool = buildConceptPool(structured);
+  const sortedQuests = Array.isArray(world?.quests)
+    ? world.quests.slice().sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0))
+    : [];
+
+  return sortedQuests.map((quest, questIndex) => ({
+    id: quest.id,
+    challengeJson: buildQuestChallengeSequence({
+      level: {
+        name: quest.levelName,
+        overview: quest.learningGoal,
+      },
+      quest: {
+        ...(quest.generatedJson ?? {
+          title: quest.title,
+          description: quest.description,
+        }),
+      },
+      questIndex,
+      conceptPool,
+    }),
+  }));
 }
 
 function buildConceptRows(structured, rpgWorldId) {
@@ -1302,6 +1660,499 @@ function buildStarterCharacter(title, focus, structured) {
   };
 }
 
+function buildConceptPool(structured) {
+  const vocabulary = Array.isArray(structured?.vocabulary) ? structured.vocabulary : [];
+  const entries = vocabulary
+    .map((entry) => ({
+      term: normalizeTextField(entry?.term, ''),
+      description: valueOrNull(entry?.description) || 'This concept supports the quest.',
+      type: normalizeTextField(entry?.type, 'concept'),
+    }))
+    .filter((entry) => entry.term);
+
+  if (entries.length) {
+    return entries;
+  }
+
+  const fallbackTerms = [];
+  const levels = Array.isArray(structured?.levels) ? structured.levels : [];
+  levels.forEach((level) => {
+    const quests = Array.isArray(level?.quests) ? level.quests : [];
+    quests.forEach((quest) => {
+      fallbackTerms.push(
+        ...arrayOrEmpty(quest?.items).map((item) => ({
+          term: normalizeTextField(String(item), ''),
+          description: `A quest item tied to ${normalizeTextField(quest?.title, 'this quest')}.`,
+          type: 'item',
+        })),
+        ...arrayOrEmpty(quest?.abilities).map((ability) => ({
+          term: normalizeTextField(String(ability), ''),
+          description: `An ability used during ${normalizeTextField(quest?.title, 'this quest')}.`,
+          type: 'ability',
+        }))
+      );
+    });
+  });
+
+  return fallbackTerms.filter((entry) => entry.term);
+}
+
+function extractSourceSections(sourceText, desiredSections) {
+  const normalized = String(sourceText || '').replace(/\r/g, '').trim();
+  if (!normalized) {
+    return [];
+  }
+
+  const paragraphSections = normalized
+    .split(/\n\s*\n+/)
+    .map((section) => section.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+
+  if (paragraphSections.length >= desiredSections) {
+    return paragraphSections.slice(0, desiredSections).map((section) => section.slice(0, 900));
+  }
+
+  const sentences = normalized
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+
+  if (!sentences.length) {
+    return [normalized.slice(0, 900)];
+  }
+
+  const sectionSize = Math.max(1, Math.ceil(sentences.length / Math.max(1, desiredSections)));
+  const sections = [];
+  for (let index = 0; index < sentences.length; index += sectionSize) {
+    sections.push(sentences.slice(index, index + sectionSize).join(' ').slice(0, 900));
+  }
+
+  return sections;
+}
+
+function buildQuestChallengeSequence({ level, quest, questIndex, conceptPool, sourceExcerpt = '' }) {
+  const questTitle = normalizeTextField(quest?.title, `Quest ${questIndex + 1}`);
+  const locationName = normalizeTextField(level?.name, `Region ${questIndex + 1}`);
+  const npcName = buildNpcName(questTitle, locationName);
+  const questDescription = valueOrNull(quest?.description)
+    || `The fate of ${locationName} depends on how well you can handle ${questTitle}.`;
+  const activeExcerpt = normalizeTextField(sourceExcerpt || quest?.sourceExcerpt || quest?.generatedJson?.sourceExcerpt, '');
+  const selectedConcepts = pickConceptsForQuest(quest, conceptPool);
+  const practiceConcepts = selectedConcepts.slice(0, Math.min(2, selectedConcepts.length));
+  const finalConcepts = selectedConcepts.slice(Math.min(2, selectedConcepts.length));
+  const usableFinalConcepts = finalConcepts.length
+    ? finalConcepts
+    : selectedConcepts.slice(0, Math.min(3, selectedConcepts.length));
+  const practiceSteps = practiceConcepts.map((concept, index) =>
+    buildChoiceStep({
+      phase: 'practice',
+      questTitle,
+      locationName,
+      questDescription,
+      sourceExcerpt: activeExcerpt,
+      concept,
+      distractors: conceptPool,
+      stepIndex: index,
+    })
+  );
+  const finalSteps = usableFinalConcepts.map((concept, index) =>
+    buildChoiceStep({
+      phase: 'final',
+      questTitle,
+      locationName,
+      questDescription,
+      sourceExcerpt: activeExcerpt,
+      concept,
+      distractors: conceptPool,
+      stepIndex: practiceSteps.length + index,
+    })
+  );
+  const dialogueConcepts = selectedConcepts.slice(0, 3);
+
+  return {
+    scene: {
+      locationName,
+      npcName,
+      title: questTitle,
+      introText: `${npcName} guides you through ${locationName}. Practice the key ideas first, then survive the final encounter in ${questTitle}.`,
+      environmentSeed: `${locationName}-${questIndex}`,
+      dialogue: buildQuestDialogue({
+        questTitle,
+        locationName,
+        npcName,
+        quest,
+        questDescription,
+        sourceExcerpt: activeExcerpt,
+        concepts: dialogueConcepts,
+      }),
+    },
+    practiceSteps,
+    finalEncounter: {
+      name: `${questTitle} Trial`,
+      summary: `A multi-step challenge that tests whether you can apply the chapter's ideas under pressure.`,
+      steps: finalSteps,
+    },
+  };
+}
+
+function buildQuestDialogue({ questTitle, locationName, npcName, quest, questDescription, sourceExcerpt, concepts }) {
+  const protagonistName = 'You';
+  const opening = questDescription || `Something in ${locationName} has gone wrong, and the only way through is understanding the lesson behind ${questTitle}.`;
+  const conceptA = concepts[0];
+  const conceptB = concepts[1] || concepts[0];
+  const conceptC = concepts[2] || conceptB;
+
+  const lines = [
+    {
+      speaker: npcName,
+      role: 'npc',
+      text: `Welcome to ${locationName}. ${opening}`,
+    },
+    {
+      speaker: protagonistName,
+      role: 'player',
+      text: `Then teach me what matters here before the encounter starts.`,
+    },
+  ];
+
+  if (conceptA) {
+    lines.push({
+      speaker: npcName,
+      role: 'npc',
+      text: buildTeachingLine({
+        concept: conceptA,
+        questTitle,
+        locationName,
+        questDescription,
+        sourceExcerpt,
+        emphasis: 'foundation',
+      }),
+    });
+  }
+
+  if (conceptB && conceptB.term !== conceptA?.term) {
+    lines.push({
+      speaker: npcName,
+      role: 'npc',
+      text: buildTeachingLine({
+        concept: conceptB,
+        questTitle,
+        locationName,
+        questDescription,
+        sourceExcerpt,
+        emphasis: 'connection',
+      }),
+    });
+  }
+
+  if (conceptC && conceptC.term !== conceptA?.term && conceptC.term !== conceptB?.term) {
+    lines.push({
+      speaker: npcName,
+      role: 'npc',
+      text: buildTeachingLine({
+        concept: conceptC,
+        questTitle,
+        locationName,
+        questDescription,
+        sourceExcerpt,
+        emphasis: 'warning',
+      }),
+    });
+  }
+
+  lines.push({
+    speaker: protagonistName,
+    role: 'player',
+    text: `Got it. I need to read the situation, not just memorize words. Let me practice before I face the final trial.`,
+  });
+
+  return lines;
+}
+
+function pickConceptsForQuest(quest, conceptPool) {
+  if (!conceptPool.length) {
+    return [{
+      term: normalizeTextField(quest?.title, 'Core concept'),
+      description: valueOrNull(quest?.description) || 'Use what you learned in this quest.',
+      type: 'concept',
+    }];
+  }
+
+  const questText = [
+    normalizeTextField(quest?.title, ''),
+    valueOrNull(quest?.description),
+    ...arrayOrEmpty(quest?.items).map(String),
+    ...arrayOrEmpty(quest?.abilities).map(String),
+    ...arrayOrEmpty(quest?.dependencies).map(String),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  const matched = conceptPool.filter((concept) => questText.includes(concept.term.toLowerCase()));
+  if (matched.length >= 3) {
+    return matched.slice(0, 5);
+  }
+
+  const combined = [...matched];
+  for (const concept of conceptPool) {
+    if (!combined.find((entry) => entry.term === concept.term)) {
+      combined.push(concept);
+    }
+    if (combined.length >= 5) break;
+  }
+
+  return combined;
+}
+
+function buildChoiceStep({ phase, questTitle, locationName, questDescription, sourceExcerpt, concept, distractors, stepIndex }) {
+  const choices = buildChoiceList(concept, distractors);
+  const isFinal = phase === 'final';
+  const scenario = buildScenarioPrompt({
+    phase,
+    questTitle,
+    locationName,
+    questDescription,
+    sourceExcerpt,
+    concept,
+  });
+
+  return {
+    id: `${phase}-${stepIndex + 1}`,
+    phase,
+    prompt: scenario,
+    choices,
+    correctAnswer: concept.term,
+    explanation: `${concept.term} fits because ${buildAppliedExplanation(concept, locationName, questTitle)}`,
+    successText: isFinal
+      ? `You held the line in ${locationName} by applying ${concept.term}.`
+      : `Good read. ${concept.term} is one of the key ideas for this quest.`,
+    failureText: isFinal
+      ? `Not quite. The encounter is asking you to apply the idea, not just repeat its definition.`
+      : `Close, but look for what the situation is really asking you to notice or preserve.`,
+    relatedConcepts: [concept.term],
+  };
+}
+
+function buildTeachingLine({ concept, questTitle, locationName, questDescription, sourceExcerpt, emphasis }) {
+  const conceptName = normalizeTextField(concept?.term, 'This concept');
+  const desc = normalizeTextField(concept?.description, `${conceptName} matters in this quest.`);
+  const summary = summarizeDescription(desc);
+  const contextualProblem = normalizeTextField(
+    questDescription,
+    `${questTitle} is in trouble and ${locationName} needs a careful reader.`
+  );
+
+  if (emphasis === 'foundation') {
+    return `${contextualProblem} ${conceptName} helps you notice the rule underneath the chaos, especially when ${summary}.`;
+  }
+
+  if (emphasis === 'connection') {
+    return `Do not treat ${conceptName} like an isolated term. In ${locationName}, it matters because ${summary}, and that changes how you read the rest of the situation.`;
+  }
+
+  return `One warning before the trial: ${conceptName} becomes important when the scene gets messy. Watch for moments when ${summary}, because that is where players usually slip.`;
+}
+
+function buildScenarioPrompt({ phase, questTitle, locationName, questDescription, sourceExcerpt, concept }) {
+  const setup = normalizeTextField(
+    questDescription,
+    `${questTitle} is forcing everyone in ${locationName} to make a difficult choice.`
+  );
+  const challenge = buildAppliedScenario(concept, locationName, questDescription, questTitle);
+
+  if (phase === 'final') {
+    return `${locationName} enters its crisis point during ${questTitle}. ${setup} ${challenge} Which concept should guide your decision?`;
+  }
+
+  return `While preparing for ${questTitle}, your mentor gives you this case from ${locationName}: ${challenge} Which concept best explains what matters in this situation?`;
+}
+
+function buildAppliedScenario(concept, locationName, questDescription = '', questTitle = '') {
+  const term = normalizeTextField(concept?.term, 'the concept').toLowerCase();
+  const description = normalizeTextField(concept?.description, '').toLowerCase();
+  const subject = buildScenarioSubject(locationName, questDescription, questTitle);
+
+  if (term.includes('one-to-one') || description.includes('one-to-one')) {
+    return `A ${subject.anchor} in ${locationName} only works if each ${subject.unitSingular} is paired with exactly one counterpart, and any extra pairing breaks the system.`;
+  }
+
+  if (term.includes('one-to-many') || description.includes('one-to-many')) {
+    return `One ${subject.leader} in ${locationName} can direct many ${subject.unitPlural}, but each ${subject.unitSingular} still reports back to just one ${subject.leader}.`;
+  }
+
+  if (term.includes('many-to-many') || description.includes('many-to-many')) {
+    return `Several ${subject.groupPlural} in ${locationName} interact with several ${subject.targetPlural} at once, and the keepers need a way to track every crossing without losing detail.`;
+  }
+
+  if (term.includes('recursive') || description.includes('recursive')) {
+    return `In ${locationName}, ${subject.creaturePlural} can guide, report to, or depend on other ${subject.creaturePlural} of the same kind.`;
+  }
+
+  if (description.includes('relationship')) {
+    return `Two parts of the problem in ${locationName} clearly affect one another, and the wrong interpretation would make the whole system inconsistent.`;
+  }
+
+  if (description.includes('process') || description.includes('cycle')) {
+    return `The challenge in ${locationName} unfolds in stages, and missing how one stage feeds the next would make the final answer collapse.`;
+  }
+
+  return `A guide in ${locationName} shows you a situation where the surface details are distracting, but one underlying idea determines which choice actually works.`;
+}
+
+function buildScenarioSubject(locationName, questDescription = '', questTitle = '') {
+  const text = `${locationName} ${questDescription} ${questTitle}`.toLowerCase();
+
+  if (/(cursed|crypt|grave|spirit|swamp|shadow|haunt|gargoyle|wraith|forest)/.test(text)) {
+    return {
+      anchor: 'rune gate',
+      unitSingular: 'gargoyle',
+      unitPlural: 'gargoyles',
+      leader: 'grave-keeper',
+      groupPlural: 'spirits',
+      targetPlural: 'relics',
+      creaturePlural: 'gargoyles',
+    };
+  }
+
+  if (/(archive|library|record|ledger|scribe)/.test(text)) {
+    return {
+      anchor: 'vault seal',
+      unitSingular: 'record',
+      unitPlural: 'records',
+      leader: 'archivist',
+      groupPlural: 'scribes',
+      targetPlural: 'ledgers',
+      creaturePlural: 'records',
+    };
+  }
+
+  return {
+    anchor: 'safeguard',
+    unitSingular: 'agent',
+    unitPlural: 'agents',
+    leader: 'coordinator',
+    groupPlural: 'teams',
+    targetPlural: 'missions',
+    creaturePlural: 'members',
+  };
+}
+
+function buildAppliedExplanation(concept, locationName, questTitle) {
+  const conceptName = normalizeTextField(concept?.term, 'This concept');
+  const summary = summarizeDescription(concept?.description);
+  return `${conceptName} is the right lens here because the scene in ${locationName} only makes sense when you notice that ${summary} during ${questTitle}.`;
+}
+
+function summarizeDescription(description) {
+  const raw = normalizeTextField(description, 'the underlying rule of the scene matters more than the surface wording');
+  const trimmed = raw.replace(/\.$/, '');
+
+  if (/^a\s+/i.test(trimmed) || /^an\s+/i.test(trimmed) || /^the\s+/i.test(trimmed)) {
+    return trimmed.charAt(0).toLowerCase() + trimmed.slice(1);
+  }
+
+  return trimmed;
+}
+
+function buildExcerptClue(sourceExcerpt, index = 0) {
+  const normalized = normalizeTextField(sourceExcerpt, '');
+  if (!normalized) {
+    return 'the author is signaling an important pattern rather than handing you the answer directly';
+  }
+
+  const sentences = normalized
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+
+  if (!sentences.length) {
+    return normalized.slice(0, 180);
+  }
+
+  return sentences[index % sentences.length].slice(0, 180);
+}
+
+function buildChoiceList(correctConcept, conceptPool) {
+  const choices = [correctConcept.term];
+  for (const concept of conceptPool) {
+    if (choices.length >= 4) break;
+    if (concept.term !== correctConcept.term && !choices.includes(concept.term)) {
+      choices.push(concept.term);
+    }
+  }
+
+  return shuffleArray(choices);
+}
+
+function buildNpcName(questTitle, locationName) {
+  const source = `${questTitle} ${locationName}`.replace(/[^A-Za-z0-9 ]/g, ' ').trim().split(/\s+/).filter(Boolean);
+  const first = source[0] || 'Quest';
+  const second = source[1] || 'Guide';
+  return `${capitalizeWord(first)} ${capitalizeWord(second)}`;
+}
+
+function shuffleArray(values) {
+  const copy = [...values];
+  for (let index = copy.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [copy[index], copy[swapIndex]] = [copy[swapIndex], copy[index]];
+  }
+  return copy;
+}
+
+function capitalizeWord(value) {
+  if (!value) return '';
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+async function resetWorldProgress(tx, world) {
+  const character = world?.characters?.[0];
+  const quests = Array.isArray(world?.quests) ? world.quests : [];
+
+  if (!character) {
+    return;
+  }
+
+  await tx.characterSkill.deleteMany({
+    where: { characterId: character.id },
+  });
+
+  await tx.conceptMastery.updateMany({
+    where: { characterId: character.id },
+    data: {
+      masteryScore: 0,
+      timesPracticed: 0,
+      lastPracticedAt: null,
+    },
+  });
+
+  const firstQuestId = quests[0]?.id ?? null;
+  await tx.character.update({
+    where: { id: character.id },
+    data: {
+      level: 1,
+      xp: 0,
+      currentQuestId: firstQuestId,
+    },
+  });
+
+  for (const [index, quest] of quests.entries()) {
+    await tx.characterProgress.updateMany({
+      where: {
+        characterId: character.id,
+        questId: quest.id,
+      },
+      data: {
+        status: index === 0 ? 'AVAILABLE' : 'LOCKED',
+        attempts: 0,
+        score: 0,
+        completedAt: null,
+      },
+    });
+  }
+}
+
 function deriveWorldDescription(structured, focus) {
   const firstLevelOverview = valueOrNull(structured?.levels?.[0]?.overview);
   const firstAssessment = valueOrNull(structured?.assessments?.[0]?.name);
@@ -1350,6 +2201,7 @@ function formatWorldSummary(world) {
   const progress = Array.isArray(character?.progress) ? character.progress : [];
   const concepts = Array.isArray(character?.conceptMasteries) ? character.conceptMasteries : [];
   const currentQuest = findCurrentQuest(world, character);
+  const started = isWorldStarted(world);
 
   return {
     id: world.id,
@@ -1359,9 +2211,11 @@ function formatWorldSummary(world) {
     status: world.status,
     createdAt: world.createdAt,
     updatedAt: world.updatedAt,
-    masteryPercent: calculateMasteryPercent(concepts),
+    hasNarrative: Boolean(world?.narrativeJson),
+    isStarted: started,
+    masteryPercent: calculateMasteryPercent(concepts, progress, world?.quests ?? []),
     questProgress: {
-      completed: progress.filter((entry) => entry.status === 'COMPLETED').length,
+      completed: progress.filter((entry) => entry.status === 'COMPLETED' || entry.completedAt).length,
       total: Array.isArray(world.quests) ? world.quests.length : 0,
     },
     counts: {
@@ -1409,6 +2263,7 @@ function formatWorldDetail(world) {
         via: world.narrativeJson.via ?? null,
         learningGoal: world.narrativeJson.learningGoal ?? null,
         warnings: world.narrativeJson.warnings ?? [],
+        locked: isWorldStarted(world),
       }
       : null,
     sourceDocument: world.sourceDocument
@@ -1463,13 +2318,420 @@ function findCurrentQuest(world, character) {
   return (world?.quests ?? []).find((quest) => quest.id === character.currentQuestId) ?? null;
 }
 
-function calculateMasteryPercent(concepts) {
-  if (!Array.isArray(concepts) || concepts.length === 0) {
+function calculateMasteryPercent(concepts, progress = [], quests = []) {
+  const hasConcepts = Array.isArray(concepts) && concepts.length > 0;
+  const hasProgress = Array.isArray(progress) && progress.length > 0;
+
+  if (!hasConcepts && !hasProgress) {
     return 0;
   }
 
-  const total = concepts.reduce((sum, concept) => sum + (Number(concept.masteryScore) || 0), 0);
-  return Math.round(total / concepts.length);
+  const conceptAverage = hasConcepts
+    ? concepts.reduce((sum, concept) => sum + (Number(concept.masteryScore) || 0), 0) / concepts.length
+    : 0;
+
+  const totalQuestSteps = hasProgress
+    ? progress.reduce((sum, entry) => {
+      const matchingQuest = Array.isArray(quests) ? quests.find((quest) => quest.id === entry.questId) : null;
+      const challenge = matchingQuest?.challengeJson || null;
+      const stepCount = flattenQuestSteps(challenge).length;
+      return sum + stepCount;
+    }, 0)
+    : 0;
+  const completedSteps = hasProgress
+    ? progress.reduce((sum, entry) => sum + Math.max(0, Number(entry.score) || 0), 0)
+    : 0;
+  const progressAverage = totalQuestSteps > 0
+    ? Math.min(100, Math.round((completedSteps / totalQuestSteps) * 100))
+    : 0;
+
+  if (hasProgress && progress.every((entry) => entry.completedAt || entry.status === 'COMPLETED')) {
+    return 100;
+  }
+
+  return Math.max(Math.round(conceptAverage), progressAverage);
+}
+
+function isWorldStarted(world) {
+  const character = world?.characters?.[0];
+  if (!character) return false;
+  if ((character.xp ?? 0) > 0 || (character.level ?? 1) > 1) return true;
+
+  const progress = Array.isArray(character.progress) ? character.progress : [];
+  return progress.some((entry) =>
+    (entry.attempts ?? 0) > 0 ||
+    (entry.score ?? 0) > 0 ||
+    entry.status === 'IN_PROGRESS' ||
+    entry.status === 'COMPLETED' ||
+    entry.completedAt
+  );
+}
+
+function buildPlayState(world, requestedQuestId = '') {
+  const bundle = getQuestBundle(world, requestedQuestId);
+  if (!bundle) return null;
+
+  const scene = deriveSceneData(world, bundle);
+  const encounter = bundle.quest.challengeJson?.finalEncounter ?? {};
+  const progressSummary = {
+    completedQuests: bundle.character.progress.filter((entry) => entry.status === 'COMPLETED' || entry.completedAt).length,
+    totalQuests: world.quests.length,
+    completedSteps: bundle.progress.score,
+    totalSteps: bundle.steps.length,
+  };
+
+  return {
+    world: {
+      id: world.id,
+      title: world.title,
+      focus: world.focus,
+      description: world.description,
+      masteryPercent: calculateMasteryPercent(
+        bundle.character.conceptMasteries,
+        bundle.character.progress,
+        world?.quests ?? []
+      ),
+    },
+    character: {
+      id: bundle.character.id,
+      name: bundle.character.name,
+      className: bundle.character.className,
+      level: bundle.character.level,
+      xp: bundle.character.xp,
+      portraitUrl: buildPortraitUrl(bundle.character.name, 'adventurer-neutral'),
+    },
+    quest: {
+      id: bundle.quest.id,
+      title: bundle.quest.title,
+      description: bundle.quest.description,
+      learningGoal: bundle.quest.learningGoal,
+      status: bundle.progress.status,
+      currentStepIndex: bundle.currentStepIndex,
+      totalSteps: bundle.steps.length,
+      completed: bundle.currentStepIndex >= bundle.steps.length,
+    },
+    scene: {
+      locationName: scene.locationName,
+      title: scene.title,
+      introText: scene.introText,
+      environmentSeed: scene.environmentSeed,
+      npcName: scene.npcName,
+      npcPortraitUrl: buildPortraitUrl(scene.npcName, 'open-peeps'),
+      dialogue: scene.dialogue,
+    },
+    practice: {
+      totalSteps: Array.isArray(bundle.quest.challengeJson?.practiceSteps) ? bundle.quest.challengeJson.practiceSteps.length : 0,
+    },
+    finalEncounter: {
+      name: encounter.name ?? `${bundle.quest.title} Trial`,
+      summary: encounter.summary ?? 'A final test of what you learned in this region.',
+      totalSteps: Array.isArray(encounter.steps) ? encounter.steps.length : 0,
+    },
+    currentStep: bundle.steps[bundle.currentStepIndex] ?? null,
+    steps: bundle.steps.map((step, index) => ({
+      id: step.id,
+      phase: step.phase,
+      label: step.phase === 'final' ? `Encounter ${index + 1}` : `Practice ${index + 1}`,
+      completed: index < bundle.currentStepIndex,
+      current: index === bundle.currentStepIndex,
+    })),
+    map: buildQuestMap(world, bundle.character, bundle.quest.id),
+    progressSummary,
+    nextQuest: bundle.nextQuest
+      ? {
+        id: bundle.nextQuest.id,
+        title: bundle.nextQuest.title,
+      }
+      : null,
+    canAnswer: bundle.currentStepIndex < bundle.steps.length,
+  };
+}
+
+function getQuestBundle(world, requestedQuestId = '') {
+  const character = world?.characters?.[0];
+  if (!character) return null;
+
+  const progressByQuestId = new Map(character.progress.map((entry) => [entry.questId, entry]));
+  const accessibleQuestIds = character.progress
+    .filter((entry) => entry.status !== 'LOCKED')
+    .map((entry) => entry.questId);
+
+  const questId = requestedQuestId && accessibleQuestIds.includes(requestedQuestId)
+    ? requestedQuestId
+    : character.currentQuestId
+      || character.progress.find((entry) => entry.status === 'AVAILABLE' || entry.status === 'IN_PROGRESS')?.questId
+      || character.progress.find((entry) => entry.status !== 'COMPLETED')?.questId
+      || character.progress.find((entry) => entry.status === 'COMPLETED')?.questId;
+
+  if (!questId) return null;
+
+  const questRecord = world.quests.find((entry) => entry.id === questId);
+  const progress = progressByQuestId.get(questId);
+  if (!questRecord || !progress) return null;
+
+  const challengeJson = ensureQuestChallenge(world, questRecord);
+  const quest = {
+    ...questRecord,
+    challengeJson,
+  };
+  const steps = flattenQuestSteps(challengeJson);
+  const currentStepIndex = Math.min(progress.score ?? 0, steps.length);
+
+  return {
+    world,
+    character,
+    quest,
+    progress,
+    steps,
+    currentStepIndex,
+    nextQuest: world.quests.find((entry) => entry.sortOrder > quest.sortOrder)
+      ? {
+        ...world.quests.find((entry) => entry.sortOrder > quest.sortOrder),
+      }
+      : null,
+  };
+}
+
+function ensureQuestChallenge(world, quest) {
+  if (quest.challengeJson) {
+    return quest.challengeJson;
+  }
+
+  const conceptPool = buildConceptPool(world.generatedJson?.structured ?? world.generatedJson ?? {});
+  return buildQuestChallengeSequence({
+    level: { name: quest.levelName, overview: quest.learningGoal },
+    quest: quest.generatedJson ?? { title: quest.title, description: quest.description },
+    questIndex: quest.sortOrder ?? 0,
+    conceptPool,
+  });
+}
+
+function flattenQuestSteps(challengeJson) {
+  if (!challengeJson) return [];
+  const practiceSteps = Array.isArray(challengeJson.practiceSteps) ? challengeJson.practiceSteps : [];
+  const finalSteps = Array.isArray(challengeJson.finalEncounter?.steps) ? challengeJson.finalEncounter.steps : [];
+  return [...practiceSteps, ...finalSteps];
+}
+
+function buildQuestMap(world, character, selectedQuestId) {
+  const progressByQuestId = new Map(character.progress.map((entry) => [entry.questId, entry]));
+  return world.quests
+    .slice()
+    .sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0))
+    .map((quest) => {
+      const progress = progressByQuestId.get(quest.id);
+      const status = progress?.status ?? 'LOCKED';
+      const region = getNarrativeRegionForQuest(world, quest);
+      const scene = ensureQuestChallenge(world, quest)?.scene ?? {};
+      return {
+        id: quest.id,
+        title: quest.title,
+        locationName: region?.name || scene.locationName || quest.levelName || quest.title,
+        questHook: region?.questHook || quest.description || '',
+        status,
+        selected: quest.id === selectedQuestId,
+        accessible: status !== 'LOCKED',
+        completed: status === 'COMPLETED',
+      };
+    });
+}
+
+function deriveSceneData(world, bundle) {
+  const baseScene = bundle.quest.challengeJson?.scene ?? {};
+  const region = getNarrativeRegionForQuest(world, bundle.quest);
+  const encounter = getNarrativeEncounterForQuest(world, bundle.quest);
+  const concepts = collectSceneConcepts(bundle.steps);
+
+  return {
+    locationName: region?.name || baseScene.locationName || bundle.quest.levelName || 'Unknown Region',
+    title: bundle.quest.title,
+    introText: region?.questHook || baseScene.introText || bundle.quest.description || 'Your journey continues.',
+    environmentSeed: `${world.id}-${(region?.name || baseScene.locationName || bundle.quest.title).replace(/\s+/g, '-')}`,
+    npcName: region?.npc || baseScene.npcName || 'Guide',
+    dialogue: buildSceneDialogueForPlay({
+      world,
+      quest: bundle.quest,
+      baseScene,
+      region,
+      encounter,
+      concepts,
+    }),
+  };
+}
+
+function getNarrativeRegionForQuest(world, quest) {
+  const regions = Array.isArray(world?.narrativeJson?.narrative?.regions)
+    ? world.narrativeJson.narrative.regions
+    : Array.isArray(world?.narrativeJson?.regions)
+      ? world.narrativeJson.regions
+      : [];
+  if (!regions.length) return null;
+
+  const sortedQuests = world.quests.slice().sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0));
+  const index = sortedQuests.findIndex((entry) => entry.id === quest.id);
+  return regions[index % regions.length] ?? regions[0];
+}
+
+function getNarrativeEncounterForQuest(world, quest) {
+  const encounters = Array.isArray(world?.narrativeJson?.narrative?.encounters)
+    ? world.narrativeJson.narrative.encounters
+    : Array.isArray(world?.narrativeJson?.encounters)
+      ? world.narrativeJson.encounters
+      : [];
+  if (!encounters.length) return null;
+
+  const sortedQuests = world.quests.slice().sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0));
+  const index = sortedQuests.findIndex((entry) => entry.id === quest.id);
+  return encounters[index % encounters.length] ?? encounters[0];
+}
+
+function collectSceneConcepts(steps) {
+  const concepts = [];
+  for (const step of steps) {
+    for (const concept of step.relatedConcepts ?? []) {
+      if (!concepts.includes(concept)) {
+        concepts.push(concept);
+      }
+    }
+  }
+  return concepts.slice(0, 4);
+}
+
+function buildSceneDialogueForPlay({ world, quest, baseScene, region, encounter, concepts }) {
+  const npcName = formatNarrativeValue(region?.npc) || formatNarrativeValue(baseScene.npcName) || 'Guide';
+  const protagonistName = 'You';
+  const worldIntro = formatNarrativeValue(world?.narrativeJson?.narrative?.introduction)
+    || formatNarrativeValue(world?.narrativeJson?.introduction)
+    || `This world is built around ${world.title}.`;
+  const hook = formatNarrativeValue(region?.questHook) || formatNarrativeValue(baseScene.introText) || quest.description || `The path through ${quest.title} is uncertain.`;
+  const mechanics = formatNarrativeValue(encounter?.mechanic) || 'a layered knowledge trial';
+  const reward = formatNarrativeValue(encounter?.reward);
+  const regionName = formatNarrativeValue(region?.name) || formatNarrativeValue(baseScene.locationName) || quest.levelName || quest.title;
+
+  const lines = [
+    {
+      speaker: npcName,
+      role: 'npc',
+      text: `${worldIntro} Here in ${regionName}, ${hook}`,
+    },
+    {
+      speaker: protagonistName,
+      role: 'player',
+      text: `Before I step into the encounter, help me understand what matters here.`,
+    },
+  ];
+
+  concepts.slice(0, 3).forEach((concept, index) => {
+    const conceptRecord = world.concepts.find((entry) => entry.name.toLowerCase() === String(concept).toLowerCase());
+    lines.push({
+      speaker: npcName,
+      role: 'npc',
+      text: buildTeachingLine({
+        concept: {
+          term: conceptRecord?.name || concept,
+          description: conceptRecord?.description || `${concept} is one of the ideas this region was built around.`,
+        },
+        questTitle: quest.title,
+        locationName: regionName,
+        questDescription: hook,
+        emphasis: index === 0 ? 'foundation' : index === 1 ? 'connection' : 'warning',
+      }),
+    });
+  });
+
+  lines.push({
+    speaker: npcName,
+    role: 'npc',
+    text: `When the trial begins, expect ${mechanics}. ${reward ? `If you succeed, you earn ${reward}.` : ''}`.trim(),
+  });
+  lines.push({
+    speaker: protagonistName,
+    role: 'player',
+    text: `Got it. I need to read the situation, not just memorize a definition. Let me practice the ideas first, then I'll face the final encounter.`,
+  });
+
+  return lines;
+}
+
+function formatNarrativeValue(value) {
+  if (value === null || value === undefined || value === '') return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) return value.map((entry) => formatNarrativeValue(entry)).filter(Boolean).join(', ');
+  if (typeof value === 'object') {
+    const preferredKeys = ['name', 'title', 'description', 'benefit', 'mechanic', 'text', 'value'];
+    for (const key of preferredKeys) {
+      if (value[key]) return formatNarrativeValue(value[key]);
+    }
+    return Object.values(value).filter((entry) => typeof entry !== 'object' && entry !== null && entry !== undefined).join(' - ');
+  }
+  return '';
+}
+
+async function applyMasteryDelta(tx, characterId, concepts, relatedConcepts, masteryDelta) {
+  const normalized = new Set(relatedConcepts.map((concept) => concept.toLowerCase()));
+  const matchingConcepts = concepts.filter((concept) => normalized.has(concept.name.toLowerCase()));
+
+  for (const concept of matchingConcepts) {
+    const mastery = await tx.conceptMastery.findUnique({
+      where: {
+        characterId_conceptId: {
+          characterId,
+          conceptId: concept.id,
+        },
+      },
+    });
+
+    if (!mastery) continue;
+
+    await tx.conceptMastery.update({
+      where: { id: mastery.id },
+      data: {
+        masteryScore: Math.min(100, (mastery.masteryScore ?? 0) + masteryDelta),
+        timesPracticed: { increment: 1 },
+        lastPracticedAt: new Date(),
+      },
+    });
+  }
+}
+
+async function unlockNextQuest(tx, character, quests, completedQuest) {
+  const nextQuest = quests.find((quest) => quest.sortOrder > completedQuest.sortOrder);
+  if (!nextQuest) {
+    await tx.character.update({
+      where: { id: character.id },
+      data: { currentQuestId: null },
+    });
+    return;
+  }
+
+  await tx.characterProgress.updateMany({
+    where: {
+      characterId: character.id,
+      questId: nextQuest.id,
+      status: 'LOCKED',
+    },
+    data: {
+      status: 'AVAILABLE',
+    },
+  });
+
+  await tx.character.update({
+    where: { id: character.id },
+    data: { currentQuestId: nextQuest.id },
+  });
+}
+
+function buildPortraitUrl(seed, style = 'adventurer') {
+  return `https://api.dicebear.com/9.x/${style}/svg?seed=${encodeURIComponent(seed || 'TextQuest')}`;
+}
+
+function normalizeAnswer(value) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function hasPlayableNarrative(world) {
+  return Boolean(world?.narrativeJson?.narrative || world?.narrativeJson);
 }
 
 function handleGenerationError(res, scope, error, fallbackMessage) {

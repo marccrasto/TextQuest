@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TextQuest Play</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet" />
+</head>
+
+<body>
+  <div id="toastContainer" class="toast-container"></div>
+  <main class="container play-shell">
+    <section id="playGate" class="panel">
+      <div class="panel-header">
+        <div>
+          <h3 id="playGateTitle">Loading adventure...</h3>
+          <p id="playGateText">We’re preparing the location, your protagonist, and the next encounter.</p>
+        </div>
+      </div>
+      <div class="button-row">
+        <a href="/dashboard" class="primary-button">Return to dashboard</a>
+      </div>
+    </section>
+
+    <div id="playContent" class="hidden">
+      <div class="dashboard-nav">
+        <a href="/world.html" id="playManageLink" class="back-button">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 12H5M12 19l-7-7 7-7" />
+          </svg>
+          Back to world management
+        </a>
+      </div>
+
+      <section id="playHero" class="panel play-hero"></section>
+
+      <div class="play-grid">
+        <section class="panel play-scene-panel">
+          <div class="panel-header">
+            <div>
+              <h3>Current Scene</h3>
+              <p id="sceneMeta">Travel, dialogue, and setup before the challenge.</p>
+            </div>
+          </div>
+          <div id="sceneVisual" class="play-scene-visual"></div>
+          <div id="sceneNarrative" class="output-grid"></div>
+        </section>
+
+        <section class="panel play-encounter-panel">
+          <div class="panel-header">
+            <div>
+              <h3>Encounter</h3>
+              <p id="encounterMeta">Practice the topic, then survive the final trial.</p>
+            </div>
+            <span id="playStatus" class="status-dot">Idle</span>
+          </div>
+          <div id="stepTracker" class="play-step-tracker"></div>
+          <form id="answerForm" class="output-grid">
+            <div id="encounterPrompt" class="card"></div>
+            <div id="choiceList" class="play-choice-list"></div>
+            <div class="button-row">
+              <button id="submitAnswerButton" class="primary-button" type="submit">Submit answer</button>
+            </div>
+          </form>
+          <div id="encounterFeedback" class="output-grid empty-state">
+            <p>Answer the current question to see story feedback, mastery gains, and the next step.</p>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <script src="play.js" type="module"></script>
+</body>
+
+</html>

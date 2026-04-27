@@ -706,6 +706,10 @@
     color: var(--muted);
 }
 
+.world-card__badge {
+    align-self: flex-start;
+}
+
 .world-card__stats {
     display: grid;
     gap: 0.8rem;

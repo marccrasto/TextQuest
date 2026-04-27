@@ -11,6 +11,7 @@ const worldNarrativeStatus = document.getElementById('worldNarrativeStatus');
 const worldGoalInput = document.getElementById('worldGoalInput');
 
 let currentWorldId = null;
+let currentWorld = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
   const params = new URLSearchParams(window.location.search);
@@ -32,20 +33,43 @@ worldNarrativeButton?.addEventListener('click', async () => {
   worldNarrativeButton.disabled = true;
 
   try {
-    const response = await fetch(`/api/worlds/${encodeURIComponent(currentWorldId)}/narrative`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        learningGoal: worldGoalInput.value.trim(),
-      }),
-    });
+    const response = await regenerateNarrative(false);
 
     const result = await response.json();
     if (!response.ok) {
+      if (response.status === 409 && result?.code === 'NARRATIVE_LOCKED') {
+        const confirmed = window.confirm(
+          'This world has already started. Regenerating the narrative will restart this protagonist from the beginning. Continue?'
+        );
+
+        if (!confirmed) {
+          return;
+        }
+
+        const restartedResponse = await regenerateNarrative(true);
+        const restartedResult = await restartedResponse.json();
+
+        if (!restartedResponse.ok) {
+          throw new Error(restartedResult?.error || 'Failed to regenerate world narrative.');
+        }
+
+        renderNarrative(restartedResult.narrative, restartedResult.via);
+        showToast('World narrative regenerated. Your protagonist has been reset to the beginning.', 'info');
+        await loadWorld(currentWorldId);
+        return;
+      }
+
       throw new Error(result?.error || 'Failed to generate world narrative.');
     }
 
     renderNarrative(result.narrative, result.via);
+    if (result.restarted) {
+      showToast('World narrative regenerated. Your protagonist has been reset to the beginning.', 'info');
+      await loadWorld(currentWorldId);
+      return;
+    }
+
+    await loadWorld(currentWorldId);
     showToast('World narrative generated and saved to this RPG world.', 'info');
   } catch (error) {
     worldNarrativeOutput.classList.remove('empty-state');
@@ -56,6 +80,19 @@ worldNarrativeButton?.addEventListener('click', async () => {
     setStatus(worldNarrativeStatus, 'Idle', false);
   }
 });
+
+async function regenerateNarrative(restartFromBeginning = false) {
+  const response = await fetch(`/api/worlds/${encodeURIComponent(currentWorldId)}/narrative`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      learningGoal: worldGoalInput.value.trim(),
+      restartFromBeginning,
+    }),
+  });
+
+  return response;
+}
 
 async function loadWorld(worldId) {
   try {
@@ -78,11 +115,19 @@ async function loadWorld(worldId) {
 }
 
 function renderWorld(world) {
+  currentWorld = world;
   worldGate.classList.add('hidden');
   worldContent.classList.remove('hidden');
 
   const character = world.character;
-  const currentQuest = world.currentQuest?.title || 'No active scene yet';
+  const currentQuest = world.currentQuest?.title || 'No active focus yet';
+  const narrativeLocked = Boolean(world.narrativeMeta?.locked && world.hasNarrative);
+  const playHref = world.hasNarrative
+    ? `/play.html?id=${encodeURIComponent(world.id)}`
+    : '#worldNarrativeButton';
+  const playLabel = world.hasNarrative
+    ? (world.isStarted ? 'Continue adventure' : 'Play world')
+    : 'Generate narrative to play';
 
   worldHero.innerHTML = `
     <div class="panel-header">
@@ -91,6 +136,10 @@ function renderWorld(world) {
         <p>${escapeHtml(world.description || 'A textbook-born RPG world.')}</p>
       </div>
       <span class="status-dot">${escapeHtml(world.status)}</span>
+    </div>
+    <div class="button-row">
+      <a href="${playHref}" class="secondary-button">${playLabel}</a>
+      <button id="deleteWorldButton" class="ghost-button" type="button">Delete world</button>
     </div>
     <div class="world-hero-grid">
       <div class="card">
@@ -101,10 +150,10 @@ function renderWorld(world) {
       <div class="card">
         <h4>Learning Mastery</h4>
         <p><strong>${world.masteryPercent || 0}%</strong></p>
-        <p>${world.questProgress.completed} / ${world.questProgress.total} quests completed</p>
+        <p>${world.questProgress.completed} / ${world.questProgress.total} learning paths completed</p>
       </div>
       <div class="card">
-        <h4>Current Scene</h4>
+        <h4>Current Focus</h4>
         <p><strong>${escapeHtml(currentQuest)}</strong></p>
         <p>Level ${character?.level || 1} · ${character?.xp || 0} XP</p>
       </div>
@@ -117,6 +166,10 @@ function renderWorld(world) {
   if (world.narrativeMeta?.learningGoal) {
     worldGoalInput.value = world.narrativeMeta.learningGoal;
   }
+
+  worldNarrativeButton.textContent = narrativeLocked ? 'Regenerate narrative (restart world)' : 'Generate world narrative';
+  const deleteButton = document.getElementById('deleteWorldButton');
+  deleteButton?.addEventListener('click', handleDeleteWorld);
 }
 
 function renderBlueprint(world) {
@@ -125,21 +178,16 @@ function renderBlueprint(world) {
 
   if (structured?.levels?.length) {
     html += `<div class="badge">Blueprint overview</div>`;
-    structured.levels.forEach((level) => {
-      html += `
-        <article class="card">
-          <h4>${escapeHtml(level.name || 'Untitled level')}</h4>
-          <p>${escapeHtml(level.overview || '')}</p>
-          ${
-            Array.isArray(level.quests) && level.quests.length
-              ? `<div class="world-mini-list">${level.quests
-                .map((quest) => `<p><strong>${escapeHtml(quest.title || 'Quest')}</strong> - ${escapeHtml(quest.description || '')}</p>`)
-                .join('')}</div>`
-              : ''
-          }
-        </article>
-      `;
-    });
+    const overview = structured.levels
+      .map((level) => escapeHtml(level.overview || ''))
+      .filter(Boolean)
+      .join(' ');
+    html += `
+      <article class="card">
+        <h4>Learning overview</h4>
+        <p>${overview || 'This blueprint summarizes the major ideas that shape the world.'}</p>
+      </article>
+    `;
   }
 
   if (structured?.vocabulary?.length) {
@@ -178,16 +226,6 @@ function renderNarrative(narrative, via = 'unknown') {
       .join('')}</article>`;
   }
 
-  if (Array.isArray(narrative?.encounters) && narrative.encounters.length) {
-    html += `<article class="card"><h4>Encounter Moments</h4>${narrative.encounters
-      .map((encounter) => {
-        const mechanic = formatValue(encounter.mechanic);
-        const reward = formatValue(encounter.reward);
-        return `<p><strong>${formatValue(encounter.name, 'Encounter')}</strong>${mechanic ? ` - ${mechanic}` : ''}${reward ? `. Reward: ${reward}` : ''}</p>`;
-      })
-      .join('')}</article>`;
-  }
-
   if (Array.isArray(narrative?.rewards) && narrative.rewards.length) {
     html += `<article class="card"><h4>World Rewards</h4>${narrative.rewards
       .map((reward) => `<p><strong>${formatValue(reward.name, 'Reward')}</strong> - ${formatValue(reward.benefit)}</p>`)
@@ -196,6 +234,34 @@ function renderNarrative(narrative, via = 'unknown') {
 
   worldNarrativeOutput.classList.remove('empty-state');
   worldNarrativeOutput.innerHTML = html;
+}
+
+async function handleDeleteWorld() {
+  if (!currentWorldId || !currentWorld) return;
+
+  const confirmed = window.confirm(
+    `Delete "${currentWorld.title}"? This removes the world, protagonist, progress, and saved narrative.`
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/worlds/${encodeURIComponent(currentWorldId)}`, {
+      method: 'DELETE',
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result?.error || 'Failed to delete world.');
+    }
+
+    showToast(`Deleted "${result.title}".`, 'info');
+    window.location.href = '/dashboard';
+  } catch (error) {
+    showToast(error.message || 'Failed to delete world.', 'error');
+  }
 }
 
 function showGate(title, text) {

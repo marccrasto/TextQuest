@@ -49,10 +49,49 @@ function formatPercent(value) {
   return `${Number(value) || 0}%`;
 }
 
+function describeWorldState(world) {
+  if (world.isStarted) {
+    return 'In progress';
+  }
+
+  if (world.hasNarrative) {
+    return 'Narrative ready';
+  }
+
+  return 'Narrative required';
+}
+
+async function deleteWorld(worldId, title) {
+  const confirmed = window.confirm(
+    `Delete "${title}"? This removes the world, protagonist, progress, and saved narrative.`
+  );
+
+  if (!confirmed) {
+    return false;
+  }
+
+  const response = await fetch(`/api/worlds/${encodeURIComponent(worldId)}`, {
+    method: 'DELETE',
+  });
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(result?.error || 'Failed to delete RPG world.');
+  }
+
+  return true;
+}
+
 function renderWorldCard(world) {
   const character = world.character;
-  const currentQuest = world.currentQuest?.title || 'First quest not started yet';
+  const currentQuest = world.currentQuest?.title || 'First learning path not started yet';
   const focus = world.focus || 'General subject';
+  const actionLabel = world.hasNarrative
+    ? (world.isStarted ? 'Continue' : 'Play')
+    : 'Generate narrative';
+  const actionHref = world.hasNarrative
+    ? `/play.html?id=${encodeURIComponent(world.id)}`
+    : `/world.html?id=${encodeURIComponent(world.id)}#worldNarrativeButton`;
 
   return `
     <article class="card world-card">
@@ -64,6 +103,7 @@ function renderWorldCard(world) {
         <span class="status-dot">${escapeHtml(world.status)}</span>
       </div>
       <p class="world-card__focus">${escapeHtml(focus)}</p>
+      <div class="badge world-card__badge">${escapeHtml(describeWorldState(world))}</div>
       <div class="world-card__stats">
         <div>
           <span class="world-card__stat-label">Your protagonist</span>
@@ -72,7 +112,7 @@ function renderWorldCard(world) {
         </div>
         <div>
           <span class="world-card__stat-label">Learning mastery</span>
-          <strong>${world.questProgress.completed} / ${world.questProgress.total} quests</strong>
+          <strong>${world.questProgress.completed} / ${world.questProgress.total} learning paths</strong>
           <span>Mastery ${formatPercent(world.masteryPercent)}</span>
         </div>
         <div>
@@ -82,7 +122,9 @@ function renderWorldCard(world) {
         </div>
       </div>
       <div class="button-row">
-        <a class="secondary-button" href="/world.html?id=${encodeURIComponent(world.id)}">Open world</a>
+        <a class="secondary-button" href="${actionHref}">${actionLabel}</a>
+        <a class="ghost-button" href="/world.html?id=${encodeURIComponent(world.id)}">Manage</a>
+        <button class="ghost-button world-delete-button" type="button" data-world-id="${escapeHtml(world.id)}" data-world-title="${escapeHtml(world.title)}">Delete</button>
       </div>
     </article>
   `;
@@ -119,7 +161,7 @@ function renderDashboard(user, worlds) {
             <span class="stat-value">${formatPercent(averageMastery)}</span>
           </div>
           <div class="stat-item">
-            <span class="stat-label">Active Quest</span>
+            <span class="stat-label">Active Focus</span>
             <span class="stat-value">${escapeHtml(activeQuestTitle)}</span>
           </div>
         </div>
@@ -158,7 +200,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     dashboardGate.classList.add('hidden');
     dashboardContent.classList.remove('hidden');
     renderDashboard(user, worlds);
+    wireDashboardActions();
   } catch (error) {
     showGate('Could not load dashboard', error.message || 'Please try again.');
   }
 });
+
+function wireDashboardActions() {
+  document.querySelectorAll('.world-delete-button').forEach((button) => {
+    button.addEventListener('click', async () => {
+      try {
+        const deleted = await deleteWorld(button.dataset.worldId, button.dataset.worldTitle);
+        if (!deleted) return;
+        window.location.reload();
+      } catch (error) {
+        window.alert(error.message || 'Failed to delete world.');
+      }
+    });
+  });
+}

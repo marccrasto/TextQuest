@@ -41,7 +41,7 @@
     <section id="demoNotice" class="mode-notice hidden">
       <div>
         <strong>Demo mode</strong>
-        <p>Paste a short textbook section to generate a learning RPG. PDF upload, OCR, and graph tools are available in local mode.</p>
+        <p>Paste a short textbook section to generate a learning RPG. PDF upload and OCR are available in local mode.</p>
       </div>
     </section>
 
@@ -129,7 +129,7 @@
       <button id="processButton" class="primary-button">Generate RPG blueprint</button>
     </section>
 
-    <section id="graphSection" class="panel">
+    <section class="panel">
       <div class="panel-header">
         <div>
           <h3>2. RPG blueprint</h3>
@@ -139,42 +139,6 @@
       </div>
       <div id="structureOutput" class="output-grid empty-state">
         <p>Blueprint results will appear here.</p>
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-header">
-        <div>
-          <h3>3. Knowledge map</h3>
-          <p>Use the concept graph as a world map of ideas, prerequisites, and mastery gaps.</p>
-        </div>
-        <span id="graphStatus" class="status-dot">Idle</span>
-      </div>
-      <div class="button-row">
-        <button id="graphButton" class="secondary-button" disabled>Build knowledge map</button>
-        <a class="ghost-button" href="quest-graph-panel.html" target="_blank" rel="noreferrer">Open knowledge map
-          viewer</a>
-      </div>
-      <div id="graphOutput" class="output-grid empty-state">
-        <p>Generate a blueprint first to unlock graphing.</p>
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-header">
-        <div>
-          <h3>4. Narrative + encounters</h3>
-          <p>Generate world narrative from the saved world page, where the scenes and encounters stay attached to that RPG.</p>
-        </div>
-        <span id="narrativeStatus" class="status-dot">Idle</span>
-      </div>
-      <label class="full-width">
-        <span>Learning goal (optional)</span>
-        <textarea id="goalInput" rows="3" placeholder="Keep it fun, highlight lab safety, etc."></textarea>
-      </label>
-      <button id="narrativeButton" class="secondary-button" disabled>Open world narrative tools</button>
-      <div id="narrativeOutput" class="output-grid empty-state">
-        <p>Save a world first, then generate its narrative from the world detail page.</p>
       </div>
     </section>
   </main>

@@ -184,6 +184,40 @@ h4 {
   margin-top: 1rem;
 }
 
+.dashboard-nav {
+  margin-bottom: 1.5rem;
+}
+
+.back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.95rem;
+  transition: all 0.2s ease;
+}
+
+.back-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--accent);
+  color: #fff;
+  transform: translateX(-2px);
+}
+
+.back-button svg {
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.back-button:hover svg {
+  transform: translateX(-3px);
+}
+
 .panel {
   padding: 1.35rem;
   display: flex;
@@ -516,6 +550,234 @@ form {
   gap: 0.55rem;
 }
 
+.play-shell {
+  max-width: 1260px;
+}
+
+.play-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  gap: 1rem;
+}
+
+.play-hero-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.85rem;
+}
+
+.play-profile-card {
+  display: flex;
+  gap: 0.85rem;
+  align-items: center;
+}
+
+.play-progress {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.play-progress p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.play-progress__bar {
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(125, 234, 255, 0.12);
+}
+
+.play-progress__fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-3), var(--accent), var(--accent-2));
+}
+
+.play-portrait,
+.play-scene-npc {
+  width: 84px;
+  height: 84px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  object-fit: cover;
+}
+
+.play-scene-visual {
+  min-height: 280px;
+  border-radius: 8px;
+  border: 1px solid rgba(125, 234, 255, 0.18);
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+  box-shadow: var(--shadow);
+  background-size: cover;
+  background-position: center;
+}
+
+.play-scene-overlay {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: end;
+  padding: 1.25rem;
+  background: linear-gradient(180deg, transparent, rgba(4, 7, 17, 0.92));
+}
+
+.play-step-tracker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.65rem;
+  margin-bottom: 0.85rem;
+}
+
+.play-step {
+  padding: 0.7rem 0.8rem;
+  border-radius: 6px;
+  border: 1px solid rgba(125, 234, 255, 0.12);
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.play-step--current {
+  border-color: rgba(255, 209, 102, 0.42);
+  background: rgba(255, 209, 102, 0.08);
+  color: #ffe2a1;
+}
+
+.play-step--complete {
+  border-color: rgba(140, 255, 154, 0.35);
+  background: rgba(140, 255, 154, 0.08);
+  color: #c9ffd0;
+}
+
+.play-choice-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.play-map-stage {
+  position: relative;
+  min-height: 260px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(125, 234, 255, 0.16);
+  box-shadow: var(--shadow);
+  background-size: cover;
+  background-position: center;
+}
+
+.play-map-node {
+  position: absolute;
+  display: grid;
+  gap: 0.25rem;
+  justify-items: start;
+  text-align: left;
+  min-height: 88px;
+  min-width: 150px;
+  padding: 0.75rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid rgba(125, 234, 255, 0.14);
+  background: rgba(7, 12, 24, 0.82);
+  color: #fff;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.28);
+}
+
+.play-map-node:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.play-map-node__dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 14px rgba(125, 234, 255, 0.45);
+}
+
+.play-map-node--completed .play-map-node__dot {
+  background: var(--accent-3);
+  box-shadow: 0 0 14px rgba(140, 255, 154, 0.45);
+}
+
+.play-map-node--selected {
+  border-color: rgba(255, 209, 102, 0.42);
+  background: rgba(255, 209, 102, 0.08);
+}
+
+.play-map-node__title {
+  font-weight: 700;
+}
+
+.play-map-node__status {
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.play-map-path {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 11% 70%, rgba(125, 234, 255, 0.5) 0 6px, transparent 7px),
+    radial-gradient(circle at 30% 47%, rgba(125, 234, 255, 0.4) 0 6px, transparent 7px),
+    radial-gradient(circle at 52% 60%, rgba(125, 234, 255, 0.4) 0 6px, transparent 7px),
+    radial-gradient(circle at 76% 36%, rgba(125, 234, 255, 0.4) 0 6px, transparent 7px),
+    linear-gradient(115deg, transparent 9%, rgba(255,255,255,0.08) 10%, transparent 11%) no-repeat,
+    linear-gradient(168deg, transparent 36%, rgba(255,255,255,0.08) 37%, transparent 38%) no-repeat,
+    linear-gradient(148deg, transparent 57%, rgba(255,255,255,0.08) 58%, transparent 59%) no-repeat;
+}
+
+.play-dialogue-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.play-dialogue {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.9rem;
+  align-items: start;
+}
+
+.play-dialogue--player {
+  border-color: rgba(255, 209, 102, 0.24);
+}
+
+.play-dialogue__portrait {
+  width: 72px;
+  height: 72px;
+  border-radius: 10px;
+  border: 1px solid rgba(125, 234, 255, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+  align-self: center;
+}
+
+.play-choice {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.8rem;
+  align-items: center;
+  padding: 0.85rem 0.95rem;
+  border-radius: 6px;
+  border: 1px solid rgba(125, 234, 255, 0.14);
+  background: rgba(0, 0, 0, 0.22);
+  cursor: pointer;
+}
+
+.play-choice input {
+  width: auto;
+  margin: 0;
+}
+
 @media (max-width: 760px) {
   .container {
     padding: 1rem 0.85rem 3rem;
@@ -527,6 +789,22 @@ form {
 
   .world-grid-layout {
     grid-template-columns: 1fr;
+  }
+
+  .play-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .play-scene-overlay {
+    grid-template-columns: 1fr;
+  }
+
+  .play-map-stage {
+    min-height: 420px;
+  }
+
+  .play-map-node {
+    min-width: 120px;
   }
 
   .hero > div:first-child {

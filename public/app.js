@@ -1,27 +1,18 @@
 const titleInput = document.getElementById('titleInput');
 const focusInput = document.getElementById('focusInput');
 const textInput = document.getElementById('textInput');
-const goalInput = document.getElementById('goalInput');
 const processButton = document.getElementById('processButton');
-const narrativeButton = document.getElementById('narrativeButton');
 const useSampleButton = document.getElementById('useSample');
 const structureOutput = document.getElementById('structureOutput');
-const narrativeOutput = document.getElementById('narrativeOutput');
 const processStatus = document.getElementById('processStatus');
-const narrativeStatus = document.getElementById('narrativeStatus');
 const uploadInput = document.getElementById('uploadFile');
 const uploadMessage = document.getElementById('uploadMessage');
 const clearInputButton = document.getElementById('clearInput');
-const graphButton = document.getElementById('graphButton');
-const graphStatus = document.getElementById('graphStatus');
-const graphOutput = document.getElementById('graphOutput');
 const form = document.getElementById('uploadForm');
 const toastContainer = document.getElementById('toastContainer');
 const demoNotice = document.getElementById('demoNotice');
 const uploadRow = document.getElementById('uploadRow');
-const graphSection = document.getElementById('graphSection');
 const dashboardLink = document.getElementById('dashboardLink');
-const rpgsLink = document.getElementById('rpgsLink');
 const authStatus = document.getElementById('authStatus');
 const authSummary = document.getElementById('authSummary');
 const authSummaryText = document.getElementById('authSummaryText');
@@ -121,49 +112,6 @@ processButton.addEventListener('click', async () => {
   } finally {
     toggleButtons(false);
     setStatus(processStatus, 'Idle', false);
-  }
-});
-
-narrativeButton.addEventListener('click', async () => {
-  if (!currentWorldId) return;
-  window.location.href = `/world.html?id=${encodeURIComponent(currentWorldId)}#narrative`;
-});
-
-graphButton.addEventListener('click', async () => {
-  if (!currentStructure) return;
-  if (!appConfig.features.conceptGraph) {
-    showToast('Concept graphs are available in local mode only.', 'info');
-    return;
-  }
-
-  setStatus(graphStatus, 'Building...', true);
-  graphButton.disabled = true;
-  try {
-    const payload = {
-      structured: currentStructure,
-      title: titleInput.value.trim(),
-      focus: focusInput.value.trim(),
-      savePersistently: true,
-    };
-
-    const response = await fetch('/api/graphs/from-structure', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to generate concept graph.');
-    }
-
-    const result = await response.json();
-    renderGraph(result);
-  } catch (error) {
-    graphOutput.classList.remove('empty-state');
-    graphOutput.innerHTML = `<div class="card"><h4>Error</h4><p>${formatValue(error.message)}</p></div>`;
-  } finally {
-    graphButton.disabled = !currentStructure || !appConfig.features.conceptGraph;
-    setStatus(graphStatus, 'Idle', false);
   }
 });
 
@@ -284,7 +232,6 @@ function applyAppConfig() {
   if (isDemo) {
     demoNotice?.classList.remove('hidden');
     uploadRow?.classList.add('hidden');
-    graphSection?.classList.add('hidden');
     uploadMessage.textContent = '';
     document.getElementById('message').innerText = '';
     document.querySelector('label.full-width span').textContent = 'Textbook section';
@@ -292,14 +239,8 @@ function applyAppConfig() {
   } else {
     demoNotice?.classList.add('hidden');
     uploadRow?.classList.toggle('hidden', !features.pdfUpload);
-    graphSection?.classList.toggle('hidden', !features.conceptGraph);
     document.querySelector('label.full-width span').textContent = 'Textbook excerpt';
     textInput.placeholder = 'Paste chapter text or upload a snippet...';
-  }
-
-  if (!features.conceptGraph) {
-    graphButton.disabled = true;
-    graphOutput.innerHTML = `<p>Concept graph tools are available in local mode.</p>`;
   }
 
   console.log(`TextQuest running in ${mode} mode`, features);
@@ -325,14 +266,12 @@ function syncAuthUI() {
     authForms.classList.add('hidden');
     authSummaryText.textContent = `${currentUser.displayName || currentUser.email} • ${currentUser.email}`;
     dashboardLink?.classList.remove('hidden');
-    rpgsLink?.classList.remove('hidden');
   } else {
     authStatus.textContent = 'Guest';
     authSummary.classList.add('hidden');
     authForms.classList.remove('hidden');
     authSummaryText.textContent = '';
     dashboardLink?.classList.add('hidden');
-    rpgsLink?.classList.add('hidden');
   }
 }
 
@@ -421,11 +360,7 @@ function formatPair(primary, secondary, separator = ' - ') {
 function renderStructure(result) {
   const { structured, via, title, world, character } = result;
   currentStructure = structured;
-  narrativeButton.disabled = false;
-  graphButton.disabled = !appConfig.features.conceptGraph;
   structureOutput.classList.remove('empty-state');
-  graphOutput.classList.add('empty-state');
-  graphOutput.innerHTML = '<p>Build a knowledge map to see concept dependencies and mastery paths.</p>';
   if (structured) {
     localStorage.setItem('textquest_structure', JSON.stringify(structured));
   }
@@ -448,16 +383,18 @@ function renderStructure(result) {
   }
 
   if (structured?.levels?.length) {
+    const overview = structured.levels
+      .map((level) => formatValue(level.overview))
+      .filter(Boolean)
+      .join(' ');
+
     html += `<div class="badge">Source: ${formatValue(title, 'Untitled')} | ${formatValue(via, 'unknown')}</div>`;
-    structured.levels.forEach((level) => {
-      html += `
-        <article class="card">
-          <h4>${formatValue(level.name, 'Untitled level')}</h4>
-          <p>${formatValue(level.overview)}</p>
-          ${renderQuests(level.quests)}
-        </article>
-      `;
-    });
+    html += `
+      <article class="card">
+        <h4>Learning overview</h4>
+        <p>${overview || 'This blueprint turns the textbook into a learning world with multiple connected ideas.'}</p>
+      </article>
+    `;
   }
 
   if (structured?.vocabulary?.length) {
@@ -471,43 +408,10 @@ function renderStructure(result) {
       .join('')}</article>`;
   }
 
-  if (structured?.assessments?.length) {
-    html += `<article class="card"><h4>Assessments</h4>${structured.assessments
-      .map(
-        (assessment) =>
-          `<p><strong>${formatValue(assessment.name, 'Assessment')}</strong> | ${formatValue(
-            assessment.format,
-            'format TBD'
-          )} | ${formatValue(assessment.success_condition, 'success condition TBD')}</p>`
-      )
-      .join('')}</article>`;
-  }
-
   if (!html) {
     html = `<pre>${JSON.stringify(structured, null, 2)}</pre>`;
   }
   structureOutput.innerHTML = html;
-}
-
-function renderQuests(quests = []) {
-  if (!quests.length) return '';
-  return `
-    <div>
-      ${quests
-      .map(
-        (quest) => `
-        <div class="card">
-          <h4>${formatValue(quest.title, 'Untitled quest')}</h4>
-          <p>${formatValue(quest.description)}</p>
-          <p><strong>Items:</strong> ${formatList(quest.items)}</p>
-          <p><strong>Abilities:</strong> ${formatList(quest.abilities)}</p>
-          <p><strong>Dependencies:</strong> ${formatList(quest.dependencies)}</p>
-        </div>
-      `
-      )
-      .join('')}
-    </div>
-  `;
 }
 
 function renderNarrative(result) {
@@ -600,21 +504,12 @@ function clearStructure() {
   currentStructure = null;
   currentWorldId = null;
   localStorage.removeItem('textquest_structure');
-  localStorage.removeItem('textquest_graph');
-  narrativeButton.disabled = true;
-  graphButton.disabled = true;
   structureOutput.classList.add('empty-state');
   structureOutput.innerHTML = '<p>Crunching blueprint...</p>';
-  narrativeOutput.innerHTML = '<p>Save a world first, then generate its narrative from the world detail page.</p>';
-  narrativeOutput.classList.add('empty-state');
-  graphOutput.innerHTML = '<p>Knowledge map will appear here.</p>';
-  graphOutput.classList.add('empty-state');
 }
 
 function toggleButtons(isLoading) {
   processButton.disabled = isLoading;
-  narrativeButton.disabled = isLoading || !currentWorldId;
-  graphButton.disabled = isLoading || !currentStructure || !appConfig.features.conceptGraph;
 }
 
 function setStatus(el, text, loading) {
