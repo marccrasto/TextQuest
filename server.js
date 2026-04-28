@@ -56,7 +56,7 @@ const FEATURE_FLAGS = {
 };
 const activeFeatures = FEATURE_FLAGS[APP_MODE];
 const DATA_DIR = path.join(__dirname, 'data', 'graphs');
-const SAMPLE_PDF_MATCHER = /^Relational-Databases.*\.pdf$/i;
+const SAMPLE_PDF_FILENAME = 'Relational-Databases-and-Microsoft-Access-365-1645549955._print-169-177-1-6.pdf';
 
 const persistence = new GraphPersistence(DATA_DIR);
 const embeddingsManager = new EmbeddingsManager({
@@ -1258,16 +1258,8 @@ function blockLocalOnlyStatic(req, res, next) {
 }
 
 function getSamplePdfPath() {
-  const uploadsDir = path.join(__dirname, 'uploads');
-
-  try {
-    const entries = fs.readdirSync(uploadsDir, { withFileTypes: true });
-    const match = entries.find((entry) => entry.isFile() && SAMPLE_PDF_MATCHER.test(entry.name));
-    return match ? path.join(uploadsDir, match.name) : null;
-  } catch (error) {
-    console.warn('[sample-pdf] Could not read uploads directory', error);
-    return null;
-  }
+  const samplePath = path.join(__dirname, 'public', 'samples', SAMPLE_PDF_FILENAME);
+  return fs.existsSync(samplePath) ? samplePath : null;
 }
 
 
