@@ -1,64 +1,202 @@
-# TextQuest MVP
+# TextQuest
 
-Super lightweight proof-of-concept that turns textbook excerpts into RPG blueprints and narrative hooks using Groq LLMs. It mirrors the PRD flow (processing pipeline -> RPG generator -> front-end dashboard) with a minimal Node/Express backend and a vanilla Web UI.
+TextQuest is an AI-powered educational web application that transforms textbook excerpts into lightweight RPG learning worlds.
 
-## Features
+It takes textbook content, generates an RPG blueprint and narrative, and lets users play through short learning sequences while building mastery.
 
-- Upload/paste textbook text, optionally specify a focus/grade level.
-- Backend calls Groq (OpenAI compatible API) to extract levels, quests, vocabulary, and assessments.
-- Separate endpoint crafts lore/NPC hooks/encounters grounded in the structured data.
-- Front-end renders the blueprint as cards plus a narrative layer preview.
-- Built-in mock responses keep the UI usable even without a Groq key (clearly marked as mock).
+---
 
-## Tech Stack
+## 🚀 Live Demo
 
-- **Backend:** Node.js, Express, Groq chat completions API
-- **Frontend:** Vanilla JS + CSS served as static assets
-- **Env:** `.env` for `GROQ_API_KEY`, optional `GROQ_MODEL` and `PORT`
+Add your deployed URL here
 
-## Getting Started
+> Note: The hosted version should run in **demo mode** for reliability.  
+> Demo mode supports pasted textbook excerpts only. The full local version includes PDF upload and OCR support.
 
-1. Install dependencies
-   ```bash
-   npm install
-   ```
-2. Configure environment
-   - Copy `.env.example` -> `.env`
-   - Fill in `GROQ_API_KEY` from [console.groq.com](https://console.groq.com/)
-   - Optionally adjust `GROQ_MODEL` or `PORT`
-3. Run the server
-   ```bash
-   npm start
-   ```
-4. Visit `http://localhost:3000` to use the UI.
+---
 
-> Without a Groq key, the API returns clearly labeled mock data so the flow remains testable.
+## 📌 What It Does
 
-## API Overview
+- Create an account and save RPG worlds  
+- Paste a textbook excerpt and generate an RPG blueprint  
+- Generate a world narrative from the blueprint  
+- Play through learning sequences in that world  
+- Build mastery as you complete the experience  
+- Replay completed sequences after reaching full mastery  
 
-| Endpoint          | Body                                                             | Result                                              |
-| ----------------- | ---------------------------------------------------------------- | --------------------------------------------------- |
-| `POST /api/process`  | `{ text, title?, focus? }`                                        | Structured `levels`, `quests`, `vocabulary`, `assessments` |
-| `POST /api/narrative` | `{ structured, learningGoal? }`                                  | Narrative layer with `introduction`, `regions`, `encounters`, `rewards` |
-| `GET /api/health`    | -                                                              | Basic status ping                                   |
+---
 
-Responses include `via` (`groq` vs `mock`) so the UI can display provenance.
+## 🧠 How It Works
 
-## Customizing
+1. The user provides a textbook excerpt  
+2. The backend sends the excerpt to Groq to generate a structured RPG blueprint  
+3. The blueprint is saved to the database as a world  
+4. A protagonist character is created for that world  
+5. A narrative layer is generated from the blueprint  
+6. The user plays through the generated learning sequences  
+7. Progress and mastery are stored in the database  
 
-- Tune prompts or add new slices of metadata inside `server.js`.
-- Swap the front-end for React/Unity later - only JSON contracts need to stay stable.
-- Add persistence or queueing behind the `/api/process` route to scale ingestion.
+---
 
-## App Modes
+## ⚙️ How to Use
 
-TextQuest supports two runtime modes through `APP_MODE`:
+1. Open the application  
+2. Create an account or log in  
+3. Paste a textbook excerpt  
+4. Click Generate RPG Blueprint  
+5. Open the saved world  
+6. Generate the world narrative  
+7. Click Play World  
+8. Complete the learning sequences and build mastery  
 
-- `APP_MODE=local` enables the full local lab: PDF upload, OCR, concept graph tooling, and larger text inputs.
-- `APP_MODE=demo` limits the hosted proof of concept to pasted textbook text, hides local-only UI, blocks local-only routes, and caps text input size.
+---
 
-Use `APP_MODE=demo` for lightweight hosted demos on platforms like Vercel.
+## ❗ Important Notes About Modes
 
-## Database
+- `APP_MODE=demo` is for hosted use  
+- Demo mode supports pasted textbook excerpts only  
+- `APP_MODE=local` enables PDF upload, OCR, and sample PDF download  
+- The sample excerpt is available on the homepage in demo mode  
+- The sample PDF is available in local mode from `public/samples`  
 
-TextQuest uses Prisma with Supabase Postgres for the account and RPG persistence layer. See [docs/supabase-prisma-setup.md](docs/supabase-prisma-setup.md) for setup steps.
+### Example
+
+**Demo mode**
+- Paste textbook excerpt  
+- Generate blueprint  
+- Generate narrative  
+- Play the world  
+
+**Local mode**
+- Upload a PDF  
+- Extract text  
+- Generate blueprint  
+- Generate narrative  
+- Play the world  
+
+If local-only features are used in demo mode, the app will block them.
+
+---
+
+## 🛠️ Tech Stack
+
+**Frontend**
+- HTML  
+- CSS  
+- JavaScript  
+
+**Backend**
+- Node.js  
+- Express  
+
+**Database**
+- Prisma  
+- Supabase Postgres  
+
+**AI**
+- Groq API  
+
+**Deployment**
+- Vercel for demo mode  
+
+**Other Tools**
+- bcryptjs  
+- cookie-parser  
+- multer  
+
+---
+
+## 💻 Running Locally
+
+To run the full application locally:
+
+### 1. Clone the repository
+
+```bash
+git clone <your-repo-url>
+cd TextQuest
+```
+
+### 2. Install dependencies
+
+```bash
+npm install
+```
+
+### 3. Create your environment file
+
+```bash
+cp .env.example .env
+```
+
+### 4. Fill in your environment variables
+
+Required:
+
+```env
+GROQ_API_KEY=your_groq_api_key
+DATABASE_URL=your_supabase_runtime_url
+DIRECT_URL=your_supabase_direct_url
+SESSION_SECRET=your_session_secret
+```
+
+Optional:
+
+```env
+OPENAI_API_KEY=your_openai_api_key
+GROQ_MODEL=llama-3.1-8b-instant
+PORT=3000
+APP_MODE=local
+```
+
+### 5. Generate the Prisma client
+
+```bash
+npm run db:generate
+```
+
+### 6. Run the application
+
+```bash
+npm start
+```
+
+### 7. Open in browser
+
+```text
+http://localhost:3000
+```
+
+---
+
+## 🎯 Why This Project
+
+This project focuses on turning textbook material into a playable learning experience.
+
+It goes beyond simple content generation and emphasizes:
+- interactive educational design  
+- AI-generated worldbuilding  
+- full-stack application structure  
+- saved progress and mastery systems  
+- deployable proof-of-concept gameplay  
+
+---
+
+## ⚠️ Limitations
+
+- Demo mode does not support PDF upload or OCR  
+- Generated content quality depends on the source excerpt and AI response quality  
+- Hosted mode is intentionally scoped as a proof-of-concept  
+- OCR and local file workflows are intended for local development only  
+
+---
+
+## 🔮 Future Improvements
+
+- Richer world and narrative generation  
+- Better question quality and encounter variety  
+- More visual gameplay presentation  
+- Improved progress analytics and mastery reporting  
+- Cleaner deployment and scaling strategy for non-demo mode  
+
+---
