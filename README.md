@@ -129,7 +129,7 @@ npm install
 cp .env.example .env
 ```
 
-### 4. Fill in your environment variables
+### 4. Fill in your environment variables (api keys, both urls, and session secret)
 
 Required:
 
