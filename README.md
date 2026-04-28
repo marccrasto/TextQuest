@@ -8,7 +8,7 @@ It takes textbook content, generates an RPG blueprint and narrative, and lets us
 
 ## 🚀 Live Demo
 
-Add your deployed URL here
+https://text-quest-xi.vercel.app/
 
 > Note: The hosted version should run in **demo mode** for reliability.  
 > Demo mode supports pasted textbook excerpts only. The full local version includes PDF upload and OCR support.
@@ -113,7 +113,7 @@ To run the full application locally:
 ### 1. Clone the repository
 
 ```bash
-git clone <your-repo-url>
+git clone 
 cd TextQuest
 ```
 
@@ -135,18 +135,13 @@ Required:
 
 ```env
 GROQ_API_KEY=your_groq_api_key
-DATABASE_URL=your_supabase_runtime_url
-DIRECT_URL=your_supabase_direct_url
-SESSION_SECRET=your_session_secret
-```
-
-Optional:
-
-```env
 OPENAI_API_KEY=your_openai_api_key
 GROQ_MODEL=llama-3.1-8b-instant
 PORT=3000
 APP_MODE=local
+DATABASE_URL="postgresql://prisma.PROJECT_REF:PRISMA_PASSWORD@REGION.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1&sslmode=require"
+DIRECT_URL="postgresql://prisma.PROJECT_REF:PRISMA_PASSWORD@REGION.pooler.supabase.com:5432/postgres?sslmode=require"
+SESSION_SECRET="replace_with_a_long_random_secret"
 ```
 
 ### 5. Generate the Prisma client
