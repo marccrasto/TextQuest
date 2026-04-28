@@ -114,6 +114,7 @@ function renderPlay(play, resolution = null) {
   playContent.classList.remove('hidden');
 
   const completed = !play.currentStep;
+  const mastered = play.world.masteryPercent >= 100 || play.progressSummary.completedQuests >= play.progressSummary.totalQuests;
   selectedAnswer = '';
 
   playHero.innerHTML = `
@@ -124,12 +125,11 @@ function renderPlay(play, resolution = null) {
       </div>
       <span class="status-dot">${completed ? 'Sequence Cleared' : 'In Scene'}</span>
     </div>
-    ${completed ? `
-      <div class="button-row">
-        <button id="heroReplayQuestButton" class="secondary-button" type="button">Replay this sequence</button>
-        ${play.nextQuest ? `<button id="heroNextQuestButton" class="ghost-button" type="button">Go to ${escapeHtml(play.nextQuest.title)}</button>` : ''}
-      </div>
-    ` : ''}
+      ${completed && !mastered && play.nextQuest ? `
+        <div class="button-row">
+          <button id="heroNextQuestButton" class="ghost-button" type="button">Go to ${escapeHtml(play.nextQuest.title)}</button>
+        </div>
+      ` : ''}
     <div class="play-hero-grid">
       <div class="card play-profile-card">
         <img class="play-portrait" src="${escapeHtml(play.character.portraitUrl)}" alt="${escapeHtml(play.character.name)} portrait" />
@@ -174,7 +174,6 @@ function renderPlay(play, resolution = null) {
   sceneMeta.textContent = `${play.scene.locationName} · ${play.quest.title}`;
   encounterMeta.textContent = play.finalEncounter.summary;
 
-  document.getElementById('heroReplayQuestButton')?.addEventListener('click', replayCurrentQuest);
   document.getElementById('heroNextQuestButton')?.addEventListener('click', async () => {
     if (!play.nextQuest) return;
     currentQuestId = play.nextQuest.id;
@@ -185,7 +184,7 @@ function renderPlay(play, resolution = null) {
   sceneNarrative.innerHTML = `
     <article class="card">
       <h4>Learning Flow</h4>
-      <p>Work through the conversation, answer the prompts, and build mastery across the ideas in this world.</p>
+      <p>Work through the conversation, read the scene carefully, and answer the prompts by applying the ideas this world is built around.</p>
     </article>
   `;
   renderDialogue(play.scene.dialogue);

@@ -57,6 +57,7 @@ const FEATURE_FLAGS = {
 };
 const activeFeatures = FEATURE_FLAGS[APP_MODE];
 const DATA_DIR = path.join(__dirname, 'data', 'graphs');
+const SAMPLE_PDF_MATCHER = /^Relational-Databases.*\.pdf$/i;
 
 const persistence = new GraphPersistence(DATA_DIR);
 const embeddingsManager = new EmbeddingsManager({
@@ -171,6 +172,18 @@ app.get('/api/me', (req, res) => {
     authenticated: true,
     user: sanitizeUser(req.currentUser),
   });
+});
+
+app.get('/api/sample-pdf', requireFeature('pdfUpload'), (req, res) => {
+  const samplePdfPath = getSamplePdfPath();
+  if (!samplePdfPath) {
+    return res.status(404).json({
+      error: 'Sample PDF not found.',
+      code: 'SAMPLE_PDF_NOT_FOUND',
+    });
+  }
+
+  return res.download(samplePdfPath, path.basename(samplePdfPath));
 });
 
 app.post('/api/auth/register', async (req, res) => {
@@ -444,7 +457,7 @@ app.post('/api/worlds/:worldId/narrative', requireAuth, async (req, res) => {
       structured,
       learningGoal,
     });
-    const refreshedQuestChallenges = buildQuestChallengesForWorld(world, structured);
+    const refreshedQuestChallenges = buildQuestChallengesForWorld(world, structured, narrativePayload.narrative);
 
     await prisma.$transaction(async (tx) => {
       if (restartFromBeginning) {
@@ -1237,6 +1250,19 @@ function blockLocalOnlyStatic(req, res, next) {
   return next();
 }
 
+function getSamplePdfPath() {
+  const uploadsDir = path.join(__dirname, 'uploads');
+
+  try {
+    const entries = fs.readdirSync(uploadsDir, { withFileTypes: true });
+    const match = entries.find((entry) => entry.isFile() && SAMPLE_PDF_MATCHER.test(entry.name));
+    return match ? path.join(uploadsDir, match.name) : null;
+  } catch (error) {
+    console.warn('[sample-pdf] Could not read uploads directory', error);
+    return null;
+  }
+}
+
 
 
 function validateGenerationInput(body) {
@@ -1273,15 +1299,15 @@ function validateGenerationInput(body) {
 async function generateStructurePayload({ title, focus, text }) {
   const bookExcerpt = text.trim().slice(0, 5000);
   const messages = [
-    {
-      role: 'system',
-      content:
-        'You are TextQuest, an AI narrative designer that turns textbooks into lightweight RPG blueprints. Respond ONLY with valid JSON including levels, quests, vocabulary, and suggested assessments.',
-    },
-    {
-      role: 'user',
-      content: `Source textbook: ${title}\nFocus topic: ${focus}\nBuild an RPG-friendly JSON with:\n- levels: [{name, overview, quests[]}]\n- quests: {title, description, items, abilities, dependencies}\n- vocabulary: [{term, type, description}]\n- assessments: [{name, format, success_condition}]\nBase it on this excerpt:\n"""${bookExcerpt}"""`,
-    },
+      {
+        role: 'system',
+        content:
+          'You are TextQuest, an AI designer that turns textbooks into lightweight RPG learning blueprints. Respond ONLY with valid JSON including levels, quests, and vocabulary. Keep quest names distinct, evocative, and useful for a short demo.',
+      },
+      {
+        role: 'user',
+        content: `Source textbook: ${title}\nFocus topic: ${focus}\nBuild an RPG-friendly JSON with:\n- levels: [{name, overview, quests[]}]\n- quests: {title, description, items, abilities, dependencies}\n- vocabulary: [{term, type, description}]\nBase it on this excerpt:\n"""${bookExcerpt}"""`,
+      },
   ];
 
   try {
@@ -1320,15 +1346,15 @@ async function generateStructurePayload({ title, focus, text }) {
 async function generateNarrativePayload({ structured, learningGoal }) {
   const trimmedStructure = JSON.stringify(structured).slice(0, 8000);
   const messages = [
-    {
-      role: 'system',
-      content:
-        'You are an imaginative yet accurate RPG writer. Given structured learning data, write concise lore, NPC hooks, and encounter ideas that reinforce the knowledge.',
-    },
-    {
-      role: 'user',
-      content: `Structured data:\n${trimmedStructure}\nLearning goal: ${learningGoal}\nReturn JSON with introduction, regions (name, npc, questHook), encounters (name, mechanic, reward), and rewards (name, benefit).`,
-    },
+      {
+        role: 'system',
+        content:
+          'You are an imaginative yet accurate RPG writer. Given structured learning data, write concise lore, memorable place names, distinct NPC hooks, and encounter ideas that reinforce the knowledge. Make the world feel cohesive enough for a short demo playthrough.',
+      },
+      {
+        role: 'user',
+        content: `Structured data:\n${trimmedStructure}\nLearning goal: ${learningGoal}\nReturn JSON with introduction, regions (name, npc, questHook), encounters (name, mechanic, reward), and rewards (name, benefit). Keep region names and hooks vivid, specific, and tonally consistent with one another.`,
+      },
   ];
 
   try {
@@ -1553,8 +1579,12 @@ function buildChapterQuestRows(structured, rpgWorldId, sourceText = '') {
   return rows;
 }
 
-function buildQuestChallengesForWorld(world, structured) {
+function buildQuestChallengesForWorld(world, structured, narrativeOverride = null) {
   const conceptPool = buildConceptPool(structured);
+  const narrative = narrativeOverride || world?.narrativeJson?.narrative || world?.narrativeJson || null;
+  const regions = Array.isArray(narrative?.regions) ? narrative.regions : [];
+  const encounters = Array.isArray(narrative?.encounters) ? narrative.encounters : [];
+  const introduction = formatNarrativeValue(narrative?.introduction);
   const sortedQuests = Array.isArray(world?.quests)
     ? world.quests.slice().sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0))
     : [];
@@ -1571,11 +1601,14 @@ function buildQuestChallengesForWorld(world, structured) {
           title: quest.title,
           description: quest.description,
         }),
-      },
-      questIndex,
-      conceptPool,
-    }),
-  }));
+        },
+        questIndex,
+        conceptPool,
+        narrativeRegion: regions[questIndex % Math.max(1, regions.length)] ?? null,
+        narrativeEncounter: encounters[questIndex % Math.max(1, encounters.length)] ?? null,
+        worldIntroduction: introduction,
+      }),
+    }));
 }
 
 function buildConceptRows(structured, rpgWorldId) {
@@ -1730,13 +1763,34 @@ function extractSourceSections(sourceText, desiredSections) {
   return sections;
 }
 
-function buildQuestChallengeSequence({ level, quest, questIndex, conceptPool, sourceExcerpt = '' }) {
+function buildQuestChallengeSequence({
+  level,
+  quest,
+  questIndex,
+  conceptPool,
+  sourceExcerpt = '',
+  narrativeRegion = null,
+  narrativeEncounter = null,
+  worldIntroduction = '',
+}) {
   const questTitle = normalizeTextField(quest?.title, `Quest ${questIndex + 1}`);
-  const locationName = normalizeTextField(level?.name, `Region ${questIndex + 1}`);
-  const npcName = buildNpcName(questTitle, locationName);
-  const questDescription = valueOrNull(quest?.description)
+  const locationName = formatNarrativeValue(narrativeRegion?.name)
+    || normalizeTextField(level?.name, `Region ${questIndex + 1}`);
+  const npcName = formatNarrativeValue(narrativeRegion?.npc) || buildNpcName(questTitle, locationName);
+  const questDescription = formatNarrativeValue(narrativeRegion?.questHook)
+    || valueOrNull(quest?.description)
     || `The fate of ${locationName} depends on how well you can handle ${questTitle}.`;
   const activeExcerpt = normalizeTextField(sourceExcerpt || quest?.sourceExcerpt || quest?.generatedJson?.sourceExcerpt, '');
+  const encounterMechanic = formatNarrativeValue(narrativeEncounter?.mechanic);
+  const encounterReward = formatNarrativeValue(narrativeEncounter?.reward);
+  const flavorText = [
+    worldIntroduction,
+    locationName,
+    npcName,
+    questDescription,
+    encounterMechanic,
+    encounterReward,
+  ].filter(Boolean).join(' ');
   const selectedConcepts = pickConceptsForQuest(quest, conceptPool);
   const practiceConcepts = selectedConcepts.slice(0, Math.min(2, selectedConcepts.length));
   const finalConcepts = selectedConcepts.slice(Math.min(2, selectedConcepts.length));
@@ -1747,71 +1801,90 @@ function buildQuestChallengeSequence({ level, quest, questIndex, conceptPool, so
     buildChoiceStep({
       phase: 'practice',
       questTitle,
-      locationName,
-      questDescription,
-      sourceExcerpt: activeExcerpt,
-      concept,
-      distractors: conceptPool,
-      stepIndex: index,
+        locationName,
+        questDescription,
+        sourceExcerpt: activeExcerpt,
+        themeText: flavorText,
+        concept,
+        distractors: conceptPool,
+        stepIndex: index,
     })
   );
   const finalSteps = usableFinalConcepts.map((concept, index) =>
     buildChoiceStep({
       phase: 'final',
       questTitle,
-      locationName,
-      questDescription,
-      sourceExcerpt: activeExcerpt,
-      concept,
-      distractors: conceptPool,
-      stepIndex: practiceSteps.length + index,
+        locationName,
+        questDescription,
+        sourceExcerpt: activeExcerpt,
+        themeText: flavorText,
+        concept,
+        distractors: conceptPool,
+        stepIndex: practiceSteps.length + index,
     })
   );
   const dialogueConcepts = selectedConcepts.slice(0, 3);
 
   return {
-    scene: {
-      locationName,
-      npcName,
-      title: questTitle,
-      introText: `${npcName} guides you through ${locationName}. Practice the key ideas first, then survive the final encounter in ${questTitle}.`,
-      environmentSeed: `${locationName}-${questIndex}`,
-      dialogue: buildQuestDialogue({
-        questTitle,
+      scene: {
         locationName,
         npcName,
-        quest,
-        questDescription,
-        sourceExcerpt: activeExcerpt,
-        concepts: dialogueConcepts,
-      }),
-    },
-    practiceSteps,
-    finalEncounter: {
-      name: `${questTitle} Trial`,
-      summary: `A multi-step challenge that tests whether you can apply the chapter's ideas under pressure.`,
-      steps: finalSteps,
-    },
+        title: questTitle,
+        introText: `${npcName} guides you through ${locationName}. Read the scene, learn the patterns, and survive the final encounter in ${questTitle}.`,
+        environmentSeed: `${locationName}-${questIndex}`,
+        dialogue: buildQuestDialogue({
+          questTitle,
+        locationName,
+        npcName,
+          quest,
+          questDescription,
+          sourceExcerpt: activeExcerpt,
+          encounterMechanic,
+          encounterReward,
+          worldIntroduction,
+          concepts: dialogueConcepts,
+        }),
+      },
+      practiceSteps,
+      finalEncounter: {
+        name: `${questTitle} Trial`,
+        summary: encounterMechanic
+          ? `A multi-step challenge shaped around ${encounterMechanic.toLowerCase()}.`
+          : 'A multi-step challenge that tests whether you can apply the world’s ideas under pressure.',
+        steps: finalSteps,
+      },
   };
 }
 
-function buildQuestDialogue({ questTitle, locationName, npcName, quest, questDescription, sourceExcerpt, concepts }) {
+function buildQuestDialogue({
+  questTitle,
+  locationName,
+  npcName,
+  quest,
+  questDescription,
+  sourceExcerpt,
+  encounterMechanic,
+  encounterReward,
+  worldIntroduction,
+  concepts,
+}) {
   const protagonistName = 'You';
   const opening = questDescription || `Something in ${locationName} has gone wrong, and the only way through is understanding the lesson behind ${questTitle}.`;
   const conceptA = concepts[0];
   const conceptB = concepts[1] || concepts[0];
   const conceptC = concepts[2] || conceptB;
+  const roleLine = buildNpcRoleLine(npcName, locationName, worldIntroduction, opening);
 
   const lines = [
     {
       speaker: npcName,
       role: 'npc',
-      text: `Welcome to ${locationName}. ${opening}`,
+      text: roleLine,
     },
     {
       speaker: protagonistName,
       role: 'player',
-      text: `Then teach me what matters here before the encounter starts.`,
+      text: 'Before I step in, show me what to watch for so I can read the scene instead of guessing.',
     },
   ];
 
@@ -1863,8 +1936,16 @@ function buildQuestDialogue({ questTitle, locationName, npcName, quest, questDes
   lines.push({
     speaker: protagonistName,
     role: 'player',
-    text: `Got it. I need to read the situation, not just memorize words. Let me practice before I face the final trial.`,
+    text: 'Got it. I need to read the situation, not just memorize terms. Let me practice before I face the final trial.',
   });
+
+  if (encounterMechanic || encounterReward) {
+    lines.push({
+      speaker: npcName,
+      role: 'npc',
+      text: `When the trial starts, expect ${encounterMechanic || 'a layered test'}.${encounterReward ? ` Hold your nerve and you’ll earn ${encounterReward}.` : ''}`,
+    });
+  }
 
   return lines;
 }
@@ -1905,7 +1986,17 @@ function pickConceptsForQuest(quest, conceptPool) {
   return combined;
 }
 
-function buildChoiceStep({ phase, questTitle, locationName, questDescription, sourceExcerpt, concept, distractors, stepIndex }) {
+function buildChoiceStep({
+  phase,
+  questTitle,
+  locationName,
+  questDescription,
+  sourceExcerpt,
+  themeText = '',
+  concept,
+  distractors,
+  stepIndex,
+}) {
   const choices = buildChoiceList(concept, distractors);
   const isFinal = phase === 'final';
   const scenario = buildScenarioPrompt({
@@ -1914,6 +2005,7 @@ function buildChoiceStep({ phase, questTitle, locationName, questDescription, so
     locationName,
     questDescription,
     sourceExcerpt,
+    themeText,
     concept,
   });
 
@@ -1934,6 +2026,12 @@ function buildChoiceStep({ phase, questTitle, locationName, questDescription, so
   };
 }
 
+function buildNpcRoleLine(npcName, locationName, worldIntroduction, opening) {
+  const intro = normalizeTextField(worldIntroduction, '');
+  const compactIntro = intro ? `${intro.replace(/\s+/g, ' ').trim()} ` : '';
+  return `${compactIntro}I keep watch over ${locationName}, and right now ${opening}`;
+}
+
 function buildTeachingLine({ concept, questTitle, locationName, questDescription, sourceExcerpt, emphasis }) {
   const conceptName = normalizeTextField(concept?.term, 'This concept');
   const desc = normalizeTextField(concept?.description, `${conceptName} matters in this quest.`);
@@ -1944,34 +2042,37 @@ function buildTeachingLine({ concept, questTitle, locationName, questDescription
   );
 
   if (emphasis === 'foundation') {
-    return `${contextualProblem} ${conceptName} helps you notice the rule underneath the chaos, especially when ${summary}.`;
+    return `${contextualProblem} Start by watching for ${conceptName.toLowerCase()}: it matters when ${summary}.`;
   }
 
   if (emphasis === 'connection') {
-    return `Do not treat ${conceptName} like an isolated term. In ${locationName}, it matters because ${summary}, and that changes how you read the rest of the situation.`;
+    return `Do not treat ${conceptName} like a flashcard answer. In ${locationName}, it changes how you read the whole situation because ${summary}.`;
   }
 
-  return `One warning before the trial: ${conceptName} becomes important when the scene gets messy. Watch for moments when ${summary}, because that is where players usually slip.`;
+  return `One warning before the trial: players usually slip when the scene gets noisy. That is exactly when ${conceptName.toLowerCase()} matters, because ${summary}.`;
 }
 
-function buildScenarioPrompt({ phase, questTitle, locationName, questDescription, sourceExcerpt, concept }) {
+function buildScenarioPrompt({ phase, questTitle, locationName, questDescription, sourceExcerpt, themeText = '', concept }) {
   const setup = normalizeTextField(
     questDescription,
     `${questTitle} is forcing everyone in ${locationName} to make a difficult choice.`
   );
-  const challenge = buildAppliedScenario(concept, locationName, questDescription, questTitle);
+  const challenge = buildAppliedScenario(concept, locationName, questDescription, questTitle, themeText);
+  const questionTail = phase === 'final'
+    ? 'Which idea should guide your decision here?'
+    : 'Which idea are you actually seeing in this situation?';
 
   if (phase === 'final') {
-    return `${locationName} enters its crisis point during ${questTitle}. ${setup} ${challenge} Which concept should guide your decision?`;
+    return `${locationName} reaches its breaking point during ${questTitle}. ${setup} ${challenge} ${questionTail}`;
   }
 
-  return `While preparing for ${questTitle}, your mentor gives you this case from ${locationName}: ${challenge} Which concept best explains what matters in this situation?`;
+  return `While preparing for ${questTitle}, your mentor points to this case in ${locationName}: ${challenge} ${questionTail}`;
 }
 
-function buildAppliedScenario(concept, locationName, questDescription = '', questTitle = '') {
+function buildAppliedScenario(concept, locationName, questDescription = '', questTitle = '', themeText = '') {
   const term = normalizeTextField(concept?.term, 'the concept').toLowerCase();
   const description = normalizeTextField(concept?.description, '').toLowerCase();
-  const subject = buildScenarioSubject(locationName, questDescription, questTitle);
+  const subject = buildScenarioSubject(locationName, questDescription, questTitle, themeText);
 
   if (term.includes('one-to-one') || description.includes('one-to-one')) {
     return `A ${subject.anchor} in ${locationName} only works if each ${subject.unitSingular} is paired with exactly one counterpart, and any extra pairing breaks the system.`;
@@ -2000,8 +2101,8 @@ function buildAppliedScenario(concept, locationName, questDescription = '', ques
   return `A guide in ${locationName} shows you a situation where the surface details are distracting, but one underlying idea determines which choice actually works.`;
 }
 
-function buildScenarioSubject(locationName, questDescription = '', questTitle = '') {
-  const text = `${locationName} ${questDescription} ${questTitle}`.toLowerCase();
+function buildScenarioSubject(locationName, questDescription = '', questTitle = '', themeText = '') {
+  const text = `${locationName} ${questDescription} ${questTitle} ${themeText}`.toLowerCase();
 
   if (/(cursed|crypt|grave|spirit|swamp|shadow|haunt|gargoyle|wraith|forest)/.test(text)) {
     return {
@@ -2024,6 +2125,30 @@ function buildScenarioSubject(locationName, questDescription = '', questTitle = 
       groupPlural: 'scribes',
       targetPlural: 'ledgers',
       creaturePlural: 'records',
+    };
+  }
+
+  if (/(cell|mitochondria|chloroplast|biology|organ|membrane|enzyme|gene)/.test(text)) {
+    return {
+      anchor: 'membrane lock',
+      unitSingular: 'cell',
+      unitPlural: 'cells',
+      leader: 'signal protein',
+      groupPlural: 'enzymes',
+      targetPlural: 'reactions',
+      creaturePlural: 'organelles',
+    };
+  }
+
+  if (/(market|economy|trade|finance|price|supply|demand)/.test(text)) {
+    return {
+      anchor: 'exchange charter',
+      unitSingular: 'merchant',
+      unitPlural: 'merchants',
+      leader: 'guild broker',
+      groupPlural: 'traders',
+      targetPlural: 'contracts',
+      creaturePlural: 'brokers',
     };
   }
 
@@ -2075,14 +2200,56 @@ function buildExcerptClue(sourceExcerpt, index = 0) {
 
 function buildChoiceList(correctConcept, conceptPool) {
   const choices = [correctConcept.term];
-  for (const concept of conceptPool) {
+  const ranked = conceptPool
+    .filter((concept) => concept.term !== correctConcept.term && !choices.includes(concept.term))
+    .map((concept) => ({
+      concept,
+      score: scoreDistractorFit(correctConcept, concept),
+    }))
+    .sort((left, right) => right.score - left.score);
+
+  for (const entry of ranked) {
     if (choices.length >= 4) break;
-    if (concept.term !== correctConcept.term && !choices.includes(concept.term)) {
-      choices.push(concept.term);
-    }
+    choices.push(entry.concept.term);
   }
 
   return shuffleArray(choices);
+}
+
+function scoreDistractorFit(correctConcept, candidateConcept) {
+  let score = 0;
+  if (
+    normalizeTextField(correctConcept?.type, '')
+    && normalizeTextField(correctConcept?.type, '') === normalizeTextField(candidateConcept?.type, '')
+  ) {
+    score += 4;
+  }
+
+  const correctWords = new Set(tokenizeForSimilarity(`${correctConcept?.term || ''} ${correctConcept?.description || ''}`));
+  const candidateWords = tokenizeForSimilarity(`${candidateConcept?.term || ''} ${candidateConcept?.description || ''}`);
+  for (const word of candidateWords) {
+    if (correctWords.has(word)) {
+      score += 2;
+    }
+  }
+
+  if (
+    normalizeTextField(candidateConcept?.term, '').split(/\s+/).length
+    === normalizeTextField(correctConcept?.term, '').split(/\s+/).length
+  ) {
+    score += 1;
+  }
+
+  return score;
+}
+
+function tokenizeForSimilarity(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, ' ')
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter((word) => word.length > 2);
 }
 
 function buildNpcName(questTitle, locationName) {
@@ -2155,9 +2322,7 @@ async function resetWorldProgress(tx, world) {
 
 function deriveWorldDescription(structured, focus) {
   const firstLevelOverview = valueOrNull(structured?.levels?.[0]?.overview);
-  const firstAssessment = valueOrNull(structured?.assessments?.[0]?.name);
-
-  return firstLevelOverview || firstAssessment || `A TextQuest RPG world built around ${normalizeTextField(focus, 'this topic')}.`;
+  return firstLevelOverview || `A TextQuest RPG world built around ${normalizeTextField(focus, 'this topic')}.`;
 }
 
 function worldIncludeForUser(userId) {
@@ -2617,7 +2782,7 @@ function buildSceneDialogueForPlay({ world, quest, baseScene, region, encounter,
     {
       speaker: protagonistName,
       role: 'player',
-      text: `Before I step into the encounter, help me understand what matters here.`,
+      text: 'Before I step into the encounter, help me understand what actually matters here.',
     },
   ];
 
@@ -2647,7 +2812,7 @@ function buildSceneDialogueForPlay({ world, quest, baseScene, region, encounter,
   lines.push({
     speaker: protagonistName,
     role: 'player',
-    text: `Got it. I need to read the situation, not just memorize a definition. Let me practice the ideas first, then I'll face the final encounter.`,
+    text: `Got it. I need to read the situation, not just memorize a definition. Let me practice the ideas first, then I’ll face the final encounter.`,
   });
 
   return lines;

@@ -3,6 +3,7 @@ const focusInput = document.getElementById('focusInput');
 const textInput = document.getElementById('textInput');
 const processButton = document.getElementById('processButton');
 const useSampleButton = document.getElementById('useSample');
+const useSampleInlineButton = document.getElementById('useSampleInline');
 const structureOutput = document.getElementById('structureOutput');
 const processStatus = document.getElementById('processStatus');
 const uploadInput = document.getElementById('uploadFile');
@@ -12,6 +13,8 @@ const form = document.getElementById('uploadForm');
 const toastContainer = document.getElementById('toastContainer');
 const demoNotice = document.getElementById('demoNotice');
 const uploadRow = document.getElementById('uploadRow');
+const samplePdfLink = document.getElementById('samplePdfLink');
+const sampleExcerptPreview = document.getElementById('sampleExcerptPreview');
 const dashboardLink = document.getElementById('dashboardLink');
 const authStatus = document.getElementById('authStatus');
 const authSummary = document.getElementById('authSummary');
@@ -115,11 +118,14 @@ processButton.addEventListener('click', async () => {
   }
 });
 
-useSampleButton.addEventListener('click', () => {
+function fillSampleExcerpt() {
   titleInput.value = 'Database Design - Cardinality';
   focusInput.value = 'University Database Course';
   textInput.value = sampleExcerpt;
-});
+}
+
+useSampleButton.addEventListener('click', fillSampleExcerpt);
+useSampleInlineButton?.addEventListener('click', fillSampleExcerpt);
 
 uploadInput?.addEventListener('change', async (event) => {
   const file = event.target.files?.[0];
@@ -226,21 +232,27 @@ async function loadAppConfig() {
 function applyAppConfig() {
   const { features, isDemo, mode } = appConfig;
   const maxInputChars = features.maxInputChars;
+  const excerptLabel = document.querySelector('label.full-width span');
 
   textInput.maxLength = maxInputChars;
+  if (sampleExcerptPreview) {
+    sampleExcerptPreview.textContent = sampleExcerpt;
+  }
 
   if (isDemo) {
     demoNotice?.classList.remove('hidden');
     uploadRow?.classList.add('hidden');
     uploadMessage.textContent = '';
     document.getElementById('message').innerText = '';
-    document.querySelector('label.full-width span').textContent = 'Textbook section';
-    textInput.placeholder = `Paste a textbook section for the hosted demo (${maxInputChars.toLocaleString()} characters max)...`;
+    samplePdfLink?.classList.add('hidden');
+    if (excerptLabel) excerptLabel.textContent = 'Textbook excerpt';
+    textInput.placeholder = `Paste a textbook excerpt for the hosted demo (${maxInputChars.toLocaleString()} characters max)...`;
   } else {
     demoNotice?.classList.add('hidden');
     uploadRow?.classList.toggle('hidden', !features.pdfUpload);
-    document.querySelector('label.full-width span').textContent = 'Textbook excerpt';
-    textInput.placeholder = 'Paste chapter text or upload a snippet...';
+    samplePdfLink?.classList.toggle('hidden', !features.pdfUpload);
+    if (excerptLabel) excerptLabel.textContent = 'Textbook excerpt';
+    textInput.placeholder = `Paste a textbook excerpt here (${maxInputChars.toLocaleString()} characters max)...`;
   }
 
   console.log(`TextQuest running in ${mode} mode`, features);

@@ -249,6 +249,21 @@ h4 {
   color: var(--muted);
 }
 
+.mode-notice__actions {
+  margin-top: 0.85rem;
+}
+
+.sample-excerpt {
+  margin: 0.85rem 0 0;
+  max-height: 240px;
+  white-space: pre-wrap;
+  overflow: auto;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 209, 102, 0.22);
+  background: rgba(4, 7, 17, 0.48);
+  color: #f7f2df;
+}
+
 .panel-header {
   display: flex;
   align-items: flex-start;

@@ -41,8 +41,12 @@
     <section id="demoNotice" class="mode-notice hidden">
       <div>
         <strong>Demo mode</strong>
-        <p>Paste a short textbook section to generate a learning RPG. PDF upload and OCR are available in local mode.</p>
+        <p>Paste a short textbook section to generate a learning RPG. Use the sample below as a model for the kind of excerpt that works well in the hosted demo.</p>
       </div>
+      <div class="mode-notice__actions">
+        <button id="useSampleInline" class="ghost-button" type="button">Use this sample excerpt</button>
+      </div>
+      <pre id="sampleExcerptPreview" class="sample-excerpt"></pre>
     </section>
 
     <section class="panel">
@@ -118,6 +122,7 @@
             <input type="file" name="uploadFile" id="uploadFile" accept=".pdf,.txt,.md,.rtf" />
           </label>
         </form>
+        <a id="samplePdfLink" class="ghost-button hidden" href="/api/sample-pdf" download>Download sample PDF</a>
         <button id="clearInput" class="ghost-button" type="button">Clear text</button>
       </div>
       <p id="uploadMessage" class="helper-text"></p>
