@@ -113,7 +113,7 @@ To run the full application locally:
 ### 1. Clone the repository
 
 ```bash
-git clone 
+git clone https://github.com/marccrasto/TextQuest.git
 cd TextQuest
 ```
 
