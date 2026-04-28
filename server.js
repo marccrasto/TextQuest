@@ -8,7 +8,6 @@ const path = require('path');
 const { execSync } = require('child_process');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
-const pdfToImages = require('./pdfToImages');
 const prisma = require('./lib/db');
 require('dotenv').config();
 
@@ -63,6 +62,7 @@ const persistence = new GraphPersistence(DATA_DIR);
 const embeddingsManager = new EmbeddingsManager({
   apiKey: process.env.OPENAI_API_KEY,
 });
+let pdfToImages = null;
 
 const sampleStructure = {
   levels: [
@@ -845,6 +845,13 @@ app.post('/api/embeddings/similarity', async (req, res) => {
 
 async function runOCR(pdfPath) {
   try {
+    if (process.platform !== 'win32') {
+      console.warn('[ocr] OCR is only supported in local Windows mode. Skipping OCR.');
+      return "";
+    }
+    if (!pdfToImages) {
+      pdfToImages = require('./pdfToImages');
+    }
     const images = await pdfToImages(pdfPath);
     let fullText = "";
 

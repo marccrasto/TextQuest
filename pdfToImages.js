@@ -1,8 +1,12 @@
-const { convert } = require('pdf-poppler');
 const path = require('path');
 const fs = require('fs');
 
 async function pdfToImages(pdfPath) {
+  if (process.platform !== 'win32') {
+    throw new Error(`pdfToImages is only supported on Windows. Current platform: ${process.platform}`);
+  }
+
+  const { convert } = require('pdf-poppler');
   const pdfBaseName = path.basename(pdfPath, path.extname(pdfPath)); // e.g. "paper"
   const outputDir = path.join(__dirname, "uploads", "pages", pdfBaseName);
 
